@@ -11,6 +11,9 @@ const createTuckShop = async (req, res) => {
   if (adminAccess.role === "ADMIN") {
     try {
       const { itemName, description, price, stockQuantity,itemNo, category,status } = req.body;
+      if((category === "recharge") && (price > 500)){
+        return res.status(400).send({success:false,message: "Recharge failed: the amount must be ₹500 or less."})
+      }
 
       if (!itemName || price == null || stockQuantity == null || !itemNo || !category) {
         return res.status(400).json({ message: "Missing required fields" });
@@ -108,7 +111,9 @@ const updateTuckShopItem = async (req, res) => {
   try {
     const { id } = req.params;
     const updateBody = req.body;
-
+if((req.body.category === "recharge") && (req.body.price > 500)){
+        return res.status(400).send({success:false,message: "Recharge failed: the amount must be ₹500 or less."})
+      }
     if (!id) {
       return res.status(400).json({ message: "ID is missing" });
     }

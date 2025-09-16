@@ -95,7 +95,7 @@ exports.checkTransactionLimit = async (inmateId, amount, type) => {
     if (!inmateData || !inmateData.location_id) {
       return { status: false, message: "Inmate or location data not found" };
     }
-    if(inmateData.is_blocked){
+    if(inmateData.is_blocked === "true"){
       return { status: false, message: `Inmate ${inmateData.inmateId} is currently blocked` };
     }
 

@@ -164,10 +164,13 @@ const getInmatesID = async (req, res) => {
     if (!id) {
       return res.status(400).json({ message: "ID is missing" })
     }
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ message: "Invalid ID format" });
+     let findInmate;
+
+    if (mongoose.Types.ObjectId.isValid(id)) {
+      findInmate = await InmateSchema.findById(id);
+    } else {
+      findInmate = await InmateSchema.findOne({ inmateId: id });
     }
-    const findInmate = await InmateSchema.findById(id);
     if (!findInmate) {
       return res.status(404).json({ message: "No data found" });
     }
