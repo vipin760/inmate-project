@@ -106,7 +106,9 @@ exports.checkTransactionLimit = async (inmateId, amount, type) => {
       .replace(/\s+/g, "_");
       
     const limitObj = location.custodyLimits?.find(
-      (c) =>  c.custodyType.toLowerCase() === normalizedCustody    );
+      (c) => {
+        return c.custodyType.toLowerCase() === normalizedCustody
+      }    );
 
      if (!limitObj) {
       return {
@@ -130,7 +132,7 @@ exports.checkTransactionLimit = async (inmateId, amount, type) => {
       if (newTotal > limitObj.spendLimit) {
         return {
           status: false,
-          message: `Spend limit exceeded for ${custodyType}. Limit: ₹${limitObj.spendLimit}, Attempted total: ₹${newTotal}`,
+          message: `Spend limit exceeded for ${limitObj.custodyType}. Limit: ₹${limitObj.spendLimit}, Attempted total: ₹${newTotal}`,
         };
       }
     }

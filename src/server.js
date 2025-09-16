@@ -3,8 +3,11 @@ const app = express();
 require('dotenv').config();
 const cors = require('cors');
 const { dbConnect } = require('./config/db');
+const { scheduleBackup } = require('./config/cronBackup');
 
 dbConnect();
+// === Daily Backup at 12:00 AM ===
+scheduleBackup();
 
 app.use(express.json());
 
@@ -52,6 +55,9 @@ app.use("/logs", authenticateToken, auditLogsRoutes);
 app.use("/bulk-oprations", authenticateToken, bulkOperations);
 app.use("/department", authenticateToken, departmentRoles);
 app.use("/location", authenticateToken, inmateLocationRoutes)
+
+
+
 
 app.listen(process.env.PORT, () => {
     console.log(`server running successfully on ${process.env.PORT}`)

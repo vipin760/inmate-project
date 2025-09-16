@@ -6,6 +6,7 @@ const logAudit = require("../utils/auditlogger");
 const { checkTransactionLimit } = require("../utils/inmateTransactionLimiter");
 const userModel = require("../model/userModel");
 const InmateLocation = require("../model/inmateLocationModel");
+const inmateModel = require("../model/inmateModel");
 
 const createPOSCart = async (req, res) => {
   try {
@@ -189,4 +190,66 @@ const deletePOSCart = async (req, res) => {
   }
 };
 
-module.exports = { createPOSCart, getPOSCartById, getAllPOSCarts, updatePOSCart, deletePOSCart };
+const reversePOSCart = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const posCartData = await POSShoppingCart.findById(id);
+    if (!posCartData) {
+      return res.status(404).json({ success: false, message: "POS cart not found" });
+    }
+
+    if (posCartData.is_reversed) {
+      return res.status(400).json({ success: false, message: "This order is already reversed" });
+    }
+
+    const inmateData = await Inmate.findOne({ inmateId: posCartData.inmateId });
+    if (!inmateData) {
+      return res.status(404).json({ success: false, message: "Inmate not found" });
+    }
+
+    for (const item of posCartData.products) {
+      await TuckShop.findByIdAndUpdate(
+        item.productId,
+        { $inc: { stockQuantity: item.quantity } },
+        { new: true }
+      );
+    }
+
+    inmateData.balance += posCartData.totalAmount;
+    await inmateData.save();
+
+    posCartData.is_reversed = true;
+    await posCartData.save();
+
+   await logAudit({
+      userId: req.user.id,
+      username: req.user.username,
+      action: "DELETE",
+      targetModel: "POSShoppingCart",
+      targetId: posCartData._id,
+      description: `Reversed POS cart for inmate ${posCartData.inmateId} (Custody Type: ${inmateData.custodyType})`,
+      changes: {
+        ...posCartData.toObject(),
+        custodyType: inmateData.custodyType   
+      }
+    });
+
+    return res.json({
+      success: true,
+      message: "POS order reversed successfully",
+      data: {
+        posCartData,
+        updatedInmateBalance: inmateData.balance
+      }
+    });
+  } catch (error) {
+    console.error("Reverse POS error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message
+    });
+  }
+};
+module.exports = { createPOSCart, getPOSCartById, getAllPOSCarts, updatePOSCart, deletePOSCart,reversePOSCart };
