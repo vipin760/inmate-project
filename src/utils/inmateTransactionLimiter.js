@@ -1,6 +1,8 @@
 const financialModel = require("../model/financialModel");
 const InmateLocation = require("../model/inmateLocationModel");
 const inmateModel = require("../model/inmateModel");
+const posShoppingCart = require("../model/posShoppingCart");
+const tuckShopModel = require("../model/tuckShopModel");
 
 // exports.checkTransactionLimit = async (inmateId, amount, type) => {
 //   try {
@@ -104,7 +106,6 @@ exports.checkTransactionLimit = async (inmateId, amount, type) => {
     const normalizedCustody = inmateData.custodyType
       .toLowerCase()
       .replace(/\s+/g, "_");
-      
     const limitObj = location.custodyLimits?.find(
       (c) => {
         return c.custodyType.toLowerCase() === normalizedCustody
@@ -145,6 +146,87 @@ exports.checkTransactionLimit = async (inmateId, amount, type) => {
   } catch (error) {
     console.log("<><>error inmateTranscation",error);
     
+    return { status: false, message: "Internal server error" };
+  }
+};
+
+exports.checkProductsLimit = async (inmateId, newProducts = []) => {
+  console.log("<><>newProducts",newProducts)
+  try {
+    // First day of current month
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+
+    const carts = await posShoppingCart.find({
+      inmateId,
+      is_reversed: false,
+      createdAt: { $gte: monthStart },
+    }).populate({
+      path: "products.productId",
+      model: "TuckShop",
+      select: "name price category type", // adjust fields as needed
+    });
+
+    // 2️⃣ Calculate total recharge amount so far
+    let rechargeTotal = 0;
+    for (const cart of carts) {
+      for (const p of cart.products) {
+        const prod = p.productId;
+        if (!prod) continue;
+
+        const isRecharge =
+          (prod.category && prod.category.toLowerCase() === "recharge") ||
+          (prod.type && prod.type.toLowerCase() === "recharge") ||
+          (prod.name && prod.name.toLowerCase().includes("recharge"));
+
+        if (isRecharge) {
+          rechargeTotal += (prod.price || 0) * (p.quantity || 1);
+        }
+      }
+    }
+
+    // 3️⃣ Add the current purchase request (if passed)
+    // newProducts is expected like: [{ productId, quantity }]
+    if (newProducts.length) {
+      const ids = newProducts.map(p => p.productId);
+      const newProdDocs = await tuckShopModel.find({ _id: { $in: ids } });
+      for (const p of newProducts) {
+        const prodDoc = newProdDocs.find(d => d._id.toString() === p.productId);
+        if (!prodDoc) continue;
+        const isRecharge =
+          (prodDoc.category && prodDoc.category.toLowerCase() === "recharge") ||
+          (prodDoc.type && prodDoc.type.toLowerCase() === "recharge") ||
+          (prodDoc.name && prodDoc.name.toLowerCase().includes("recharge"));
+        if (isRecharge) {
+          rechargeTotal += (prodDoc.price || 0) * (p.quantity || 1);
+        }
+      }
+    }
+    // 4️⃣ Optional: Inmate block check
+    const inmate = await inmateModel.findOne({ inmateId });
+    if (!inmate) {
+      return { status: false, message: "Inmate not found" };
+    }
+    if (inmate.is_blocked === "true") {
+      return {
+        status: false,
+        message: `Inmate ${inmate.inmateId} is currently blocked`,
+      };
+    }
+
+    // 5️⃣ Limit check
+    const LIMIT = 500;
+    if (rechargeTotal > LIMIT) {
+      return {
+        status: false,
+        message: `Recharge limit exceeded. Limit: ₹${LIMIT}, Attempted total: ₹${rechargeTotal}`,
+      };
+    }
+
+    return { status: true, message: "Recharge purchase allowed" };
+  } catch (error) {
+    console.error("checkProductsLimit error:", error);
     return { status: false, message: "Internal server error" };
   }
 };

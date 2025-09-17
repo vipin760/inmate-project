@@ -4,8 +4,8 @@ const path = require('path');
 const { MongoClient } = require('mongodb');
 
 const scheduleBackup = () => {
-    // Run every day at 1:40 AM
-    cron.schedule('48 1 * * *', async () => {
+    // Run every day at 12:00 AM
+    cron.schedule('20 12 * * *', async () => {
         console.log('⏳ Starting MongoDB JSON backup...');
 
         const client = new MongoClient(process.env.DB_MONGO_URL);

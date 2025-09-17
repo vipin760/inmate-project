@@ -3,7 +3,7 @@ const TuckShop = require("../model/tuckShopModel");
 const Inmate = require("../model/inmateModel");
 const mongoose = require("mongoose");
 const logAudit = require("../utils/auditlogger");
-const { checkTransactionLimit } = require("../utils/inmateTransactionLimiter");
+const { checkTransactionLimit, checkProductsLimit } = require("../utils/inmateTransactionLimiter");
 const userModel = require("../model/userModel");
 const InmateLocation = require("../model/inmateLocationModel");
 const inmateModel = require("../model/inmateModel");
@@ -23,6 +23,10 @@ const createPOSCart = async (req, res) => {
          if(!depositLim.status){
           return res.status(400).send({success:false,message:depositLim.message});
          }
+    const checkRechargeTransactionLim = await checkProductsLimit(inmateId,products)
+    if(!checkRechargeTransactionLim.status){
+      return res.status(400).send({success:false,message:checkRechargeTransactionLim.message});
+    }
 
     if (!inmateId || totalAmount === undefined || !Array.isArray(products) || products.length === 0) {
       return res.status(400).json({ message: "Missing required fields" });
@@ -193,7 +197,7 @@ const deletePOSCart = async (req, res) => {
 const reversePOSCart = async (req, res) => {
   try {
     const { id } = req.params;
-
+    if(req.user.role != "ADMIN") return res.status(404).send({success:false,message:"Only admins are allowed to use this feature"})
     const posCartData = await POSShoppingCart.findById(id);
     if (!posCartData) {
       return res.status(404).json({ success: false, message: "POS cart not found" });
