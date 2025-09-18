@@ -1,6 +1,7 @@
 const express = require('express');
 const app = express();
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config()
 const cors = require('cors');
 const { dbConnect } = require('./config/db');
 const { scheduleBackup } = require('./config/cronBackup');
@@ -28,19 +29,19 @@ const inmateLocationRoutes = require('./routes/inmateLocationRoutes')
 const inventoryRoutes = require('./routes/inventoryRoutes')
 const morgan = require("morgan");
 
-const allowedOrigins = ["http://localhost:5173"]
+// const allowedOrigins = ["http://localhost:5173"]
 
-const corsOptionsDelegate = function (req, callback) {
-    let corsOptions;
-    if (allowedOrigins.includes(req.header('Origin'))) {
-        corsOptions = { origin: true };
-    } else {
-        corsOptions = { origin: false }; 
-    }
-    callback(null, corsOptions);
-};
+// const corsOptionsDelegate = function (req, callback) {
+//     let corsOptions;
+//     if (allowedOrigins.includes(req.header('Origin'))) {
+//         corsOptions = { origin: true };
+//     } else {
+//         corsOptions = { origin: false }; 
+//     }
+//     callback(null, corsOptions);
+// };
 
-app.use(cors(corsOptionsDelegate));
+app.use(cors());
 app.use(morgan(":method :url :status :response-time ms"));
 app.use("/user", authRoutes);
 app.use("/inmate", authenticateToken, inmateRoutes);

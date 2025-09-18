@@ -4,7 +4,7 @@ const custodyLimitSchema = new mongoose.Schema({
     custodyType: {
         type: String,
         required: true,
-        enum: ['remand_prisoner', 'under_trail', 'contempt_of_court']
+        enum: ['remand_prisoner', 'under_trail', 'remand_of_court']
     },
     spendLimit: { type: Number, default: 0 },
     depositLimit: { type: Number, default: 0 },

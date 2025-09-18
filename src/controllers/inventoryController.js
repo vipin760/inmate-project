@@ -8,11 +8,18 @@ exports.addInventoryStock = async(req,res)=>{
         if(!date || !invoiceNo || !vendorName || !storeItems){
             return res.status(400).send({success:false,message:"all fields are required"})
         }
+        const isExistInvoice = await vendorPurchaseModel.findOne({invoiceNo})
+        if(isExistInvoice){
+            return res.status(400).send({success:false,message:"invoice already exists"})
+        }
         const vendorPurchase = await vendorPurchaseModel.create({date,invoiceNo,vendorName,contact,status})
         let storeItem
         for(const item of storeItems){
          storeItem = await storeItemModel.create({vendorPurchase:vendorPurchase._id,itemName:item.itemName,itemNo:item.itemNo,amount:item.amount,stock:item.stock,sellingPrice:item.sellingPrice,category:item.category,status:item.status})
-         await tuckShopModel.create({itemName:item.itemName, price:item.sellingPrice, stockQuantity:0, category:item.category,itemNo:item.itemNo,status:item.status})
+          const itemExist = await tuckShopModel.findOne({itemNo:item.itemNo})
+          if(!itemExist){
+            await tuckShopModel.create({itemName:item.itemName, price:item.sellingPrice, stockQuantity:0, category:item.category,itemNo:item.itemNo,status:item.status})
+          }
         }
         return res.send({success:true,data:storeItem,message:"inventory added successfully"})
     } catch (error) {
@@ -87,103 +94,6 @@ exports.getInventoryStockById = async(req,res)=>{
     }
 }
 
-// exports.updateInventoryProduct = async (req, res) => {
-//   try {
-//     const { id } = req.params; // StoreInventory _id
-//     const body = req.body;
-
-//     const storeDoc = await storeItemModel.findById(id);
-//     if (!storeDoc) {
-//       return res
-//         .status(404)
-//         .json({ success: false, message: "Inventory stock not found" });
-//     }
-
-//     // 1️⃣ Update VendorPurchase if provided
-//     if (body.vendorPurchase && body.vendorPurchase._id) {
-//       const vId = body.vendorPurchase._id;
-//       const vendorFields = {
-//         date: body.vendorPurchase.date,
-//         invoiceNo: body.vendorPurchase.invoiceNo,
-//         vendorName: body.vendorPurchase.vendorName,
-//         contact: body.vendorPurchase.contact,
-//         status: body.vendorPurchase.status
-//       };
-//       await vendorPurchaseModel.findByIdAndUpdate(vId, vendorFields, { new: true });
-//     }
-
-//     // 2️⃣ Update StoreInventory
-//     const storeFields = {
-//       itemName: body.itemName,
-//       itemNo: body.itemNo,
-//       amount: body.amount,
-//       stock: body.stock,
-//       sellingPrice: body.sellingPrice,
-//       category: body.category,
-//       status: body.status,
-//       vendorPurchase: body.vendorPurchase?._id || storeDoc.vendorPurchase
-//     };
-
-//     const updatedStore = await storeItemModel.findByIdAndUpdate(
-//       id,
-//       storeFields,
-//       { new: true }
-//     ).populate("vendorPurchase");
-
-//     return res.status(200).json({
-//       success: true,
-//       message: "Inventory and vendor updated successfully",
-//       data: updatedStore
-//     });
-//   } catch (error) {
-//     return res.status(500).json({
-//       success: false,
-//       message: "Internal server error",
-//       error: error.message
-//     });
-//   }
-// };
-
-exports.updateInventoryProduct1 = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { date, invoiceNo, vendorName, contact, status, storeItems = [] } = req.body;
-
-    const vendorDoc = await vendorPurchaseModel.findById(id);
-    if (!vendorDoc) {
-      return res.status(404).json({ success: false, message: "Vendor purchase not found" });
-    }
-
-    // Update vendor
-    await vendorPurchaseModel.findByIdAndUpdate(
-      id,
-      { date, invoiceNo, vendorName, contact, status },
-      { new: true }
-    );
-
-    // Upsert store items
-    for (const item of storeItems) {
-      const { itemName, itemNo, amount, stock, sellingPrice, category, status } = item;
-
-      const existing = await storeItemModel.findOne({ vendorPurchase: id, itemNo });
-      if (existing) {
-        await storeItemModel.findByIdAndUpdate(existing._id, {
-          itemName, amount, stock, sellingPrice, category, status
-        });
-      } else {
-        await storeItemModel.create({
-          vendorPurchase: id,
-          itemName, itemNo, amount, stock, sellingPrice, category, status
-        });
-      }
-    }
-
-    res.status(200).json({ success: true, message: "Vendor and items updated" });
-  } catch (error) {
-    res.status(500).json({ success: false, message: "Internal server error", error: error.message });
-  }
-};
-
 exports.updateInventoryProduct = async (req, res) => {
   try {
     const { id } = req.params;
@@ -245,11 +155,10 @@ exports.updateInventoryProduct = async (req, res) => {
   }
 };
 
-
-exports.transferInventoryToCanteenInventory = async(req,res)=>{
+exports.transferInventoryToCanteenInventory1 = async(req,res)=>{
     try {
          const { itemName, category, itemNo, transferQty } = req.body;
-    if (!itemName || !category || !itemNo || !transferQty) {
+    if (!itemNo || !transferQty) {
       return res.status(400).json({
         success: false,
         message: "itemName, category, itemNo and transferQty are required"
@@ -342,18 +251,173 @@ exports.transferInventoryToCanteenInventory = async(req,res)=>{
     }
 }
 
-exports.deleteStoreData1 = async(req,res)=>{
-    try {
-        const {id} = req.params
-        const result = await storeItemModel.findByIdAndDelete(id)
-        if(!result){
-            return res.status(404).send({success:false,message:"inventory stock not found"})
+exports.transferInventoryToCanteenInventory2 = async(req,res)=>{
+  try {
+       const { itemName, category, itemNo, transferQty } = req.body;
+  if (!itemNo || !transferQty) {
+    return res.status(400).json({
+      success: false,
+      message: "itemName, category, itemNo and transferQty are required"
+    });
+  }
+
+  const storeItems = await storeItemModel
+      .find({ itemNo, stock: { $gt: 0 } })
+      .sort({ createdAt: -1 });
+
+      if (!storeItems.length) {
+        return res.status(400).json({
+          success: false,
+          message: "No stock available in store for this item",
+        });
+      }
+
+      const totalAvailable = storeItems.reduce((sum, i) => sum + i.stock, 0);
+
+      if (totalAvailable < transferQty) {
+        return res.status(400).json({
+          success: false,
+          message: `Only ${totalAvailable} units available, cannot transfer ${transferQty}`,
+        });
+      }
+
+      let remaining = transferQty;
+      const bulkOps = [];
+
+
+      for (const doc of storeItems) {
+        if (remaining <= 0) break;
+  
+        if (doc.stock <= remaining) {
+          // Deplete entire doc stock
+          bulkOps.push({
+            updateOne: {
+              filter: { _id: doc._id },
+              update: { $set: { stock: 0 } },
+            },
+          });
+          remaining -= doc.stock;
+        } else {
+          // Partially reduce stock
+          bulkOps.push({
+            updateOne: {
+              filter: { _id: doc._id },
+              update: { $inc: { stock: -remaining } },
+            },
+          });
+          remaining = 0;
         }
-        return res.send({success:true,data:result,message:"inventory stock deleted successfully"})
-    } catch (error) {
-        return res.status(500).send({success:false,message:"internal server down",error:error.message})
-    }
+      }
+
+
+      await storeItemModel.bulkWrite(bulkOps);
+
+      await tuckShopModel.updateOne(
+        { itemNo },
+        {
+          $setOnInsert: { itemName, category, status: "Active" },
+          $inc: { stockQuantity: transferQty },
+        },
+        { upsert: true }
+      );
+
+
+      return res.status(200).json({
+        success: true,
+        message: `Transferred ${transferQty} units of ${itemName} to canteen successfully`,
+      });
+  } catch (error) {
+      return res.status(500).send({success:false,message:"internal server down",error:error.message})
+  }
 }
+
+exports.transferInventoryToCanteenInventory = async (req, res) => {
+  try {
+    const { itemNo, transferQty } = req.body;
+
+    if (!itemNo || !transferQty) {
+      return res.status(400).json({
+        success: false,
+        message: "itemNo and transferQty are required",
+      });
+    }
+
+    // Fetch store stock (only items with stock > 0)
+    const storeItems = await storeItemModel
+      .find({ itemNo, stock: { $gt: 0 } })
+      .sort({ createdAt: -1 });
+
+    if (!storeItems.length) {
+      return res.status(400).json({
+        success: false,
+        message: "No stock available in store for this item",
+      });
+    }
+
+    const totalAvailable = storeItems.reduce((sum, i) => sum + i.stock, 0);
+    if (totalAvailable < transferQty) {
+      return res.status(400).json({
+        success: false,
+        message: `Only ${totalAvailable} units available, cannot transfer ${transferQty}`,
+      });
+    }
+
+    // ✅ pick reference data (all docs share same itemName/itemNo/category)
+    const { itemName, category, sellingPrice } = storeItems[0];
+
+    let remaining = transferQty;
+    const bulkOps = [];
+
+    for (const doc of storeItems) {
+      if (remaining <= 0) break;
+
+      if (doc.stock <= remaining) {
+        bulkOps.push({
+          updateOne: { filter: { _id: doc._id }, update: { $set: { stock: 0 } } },
+        });
+        remaining -= doc.stock;
+      } else {
+        bulkOps.push({
+          updateOne: {
+            filter: { _id: doc._id },
+            update: { $inc: { stock: -remaining } },
+          },
+        });
+        remaining = 0;
+      }
+    }
+
+    await storeItemModel.bulkWrite(bulkOps);
+
+    // ✅ Update or create tuck shop record
+    await tuckShopModel.updateOne(
+      { itemNo },
+      {
+        $setOnInsert: {
+          itemName,
+          category: category || "General",
+          price: sellingPrice,         // use sellingPrice as canteen price
+          status: "Active",
+          description: "",
+        },
+        $inc: { stockQuantity: transferQty },
+      },
+      { upsert: true }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: `Transferred ${transferQty} units of ${itemName} to canteen successfully`,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+};
+
 
 exports.deleteStoreData = async (req, res) => {
   try {
@@ -366,9 +430,6 @@ exports.deleteStoreData = async (req, res) => {
         .status(404)
         .send({ success: false, message: "Inventory stock not found" });
     }
-
-    // 2️⃣ Delete the corresponding tuck-shop item using the itemNo
-    await tuckShopModel.findOneAndDelete({ itemNo: result.itemNo });
 
     return res.send({
       success: true,
@@ -383,39 +444,6 @@ exports.deleteStoreData = async (req, res) => {
     });
   }
 };
-
-
-exports.deleteInventoryItem1 = async (req, res) => {
-    try {
-      const { id } = req.params;
-  
-      // Check vendor exists
-      const vendor = await vendorPurchaseModel.findById(id);
-      if (!vendor) {
-        return res.status(404).json({
-          success: false,
-          message: "Vendor purchase not found"
-        });
-      }
-  
-      // Delete all related store inventory items
-      await storeItemModel.deleteMany({ vendorPurchase: id });
-  
-      // Delete the vendor purchase itself
-      await vendorPurchaseModel.findByIdAndDelete(id);
-  
-      return res.status(200).json({
-        success: true,
-        message: "Vendor purchase and related store items deleted successfully"
-      });
-    } catch (error) {
-      return res.status(500).json({
-        success: false,
-        message: "Internal server error",
-        error: error.message
-      });
-    }
-  };
 
 exports.deleteInventoryItem = async (req, res) => {
   try {
@@ -432,11 +460,6 @@ exports.deleteInventoryItem = async (req, res) => {
 
     // 2️⃣ Find all related store inventory items first
     const storeItems = await storeItemModel.find({ vendorPurchase: id });
-
-    // 3️⃣ Delete tuck-shop entries for each related store item
-    for (const item of storeItems) {
-      await tuckShopModel.findOneAndDelete({ itemNo: item.itemNo });
-    }
 
     // 4️⃣ Delete all related store inventory items
     await storeItemModel.deleteMany({ vendorPurchase: id });
@@ -457,9 +480,7 @@ exports.deleteInventoryItem = async (req, res) => {
   }
 };
 
-
 exports.getAllCanteenItem = async (req, res) => {
-  console.log("<><>wokring............")
   try {
     const {
       page,
@@ -542,7 +563,6 @@ exports.getAllCanteenItem = async (req, res) => {
     /* 9️⃣ Otherwise return all */
     return res.status(200).json({ success: true, data: withTotals });
   } catch (error) {
-    console.log("<><>error",error)
     return res.status(500).json({
       success: false,
       message: "internal server dow",
@@ -550,3 +570,19 @@ exports.getAllCanteenItem = async (req, res) => {
     });
   }
 };
+
+exports.getCanteenItemListOptions = async(req,res)=>{
+    try {
+      const { itemNo } = req.query
+      const filter = { status: "Active" };
+      if (itemNo) {
+        filter.itemNo = { $regex: itemNo, $options: "i" };
+      }
+      const items = await tuckShopModel.find(filter);
+      return res.status(200).json({ success: true, data: items });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: "internal server down", error: error });
+    }
+}
+
+

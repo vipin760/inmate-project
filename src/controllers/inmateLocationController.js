@@ -56,7 +56,7 @@ exports.AddLocation = async (req, res) => {
             return res.status(409).json({ success: false, message: "Location already exists." });
           }
 
-          const allowedTypes = ['remand_prisoner', 'under_trail', 'contempt_of_court'];
+          const allowedTypes = ['remand_prisoner', 'under_trail', 'remand_of_court'];
           for (const c of custodyLimits) {
             if (!allowedTypes.includes(c.custodyType)) {
               return res.status(400).json({ success: false, message: `Invalid custodyType: ${c.custodyType}` });

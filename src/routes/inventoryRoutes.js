@@ -1,11 +1,12 @@
 const express = require('express');
-const { addInventoryStock, getInventoryStock, getInventoryStockById, updateInventoryProduct,deleteStoreData,deleteInventoryItem,getAllCanteenItem,transferInventoryToCanteenInventory } = require('../controllers/inventoryController');
+const { addInventoryStock, getInventoryStock, getInventoryStockById, updateInventoryProduct,deleteStoreData,deleteInventoryItem,getAllCanteenItem,transferInventoryToCanteenInventory,getCanteenItemListOptions } = require('../controllers/inventoryController');
 const router = express.Router();
 
 router.post('/',addInventoryStock)
 router.get('/',getInventoryStock)
 router.get('/canteen',getAllCanteenItem)
 router.post('/transfer',transferInventoryToCanteenInventory)
+router.get('/canteen-item-options',getCanteenItemListOptions)
 router.get('/:id',getInventoryStockById)
 router.put('/:id',updateInventoryProduct)
 router.delete('/item/:id',deleteStoreData)
