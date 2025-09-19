@@ -2,17 +2,18 @@ const vendorPurchaseModel = require("../model/vendorPurchase")
 const storeItemModel = require("../model/storeInventory")
 const tuckShopModel = require("../model/tuckShopModel")
 const CanteenInventory = require("../model/canteenInventory")
+const { getVendorPurchaseSummary } = require("../service/storeInventoryService")
 exports.addInventoryStock = async(req,res)=>{
     try {
-        const {date,invoiceNo,vendorName,contact,status,storeItems} = req.body
-        if(!date || !invoiceNo || !vendorName || !storeItems){
+        const {date,invoiceNo,vendorName,vendorValue,contact,status,storeItems} = req.body
+        if(!date || !invoiceNo || !vendorName || !storeItems || !vendorValue){
             return res.status(400).send({success:false,message:"all fields are required"})
         }
         const isExistInvoice = await vendorPurchaseModel.findOne({invoiceNo})
         if(isExistInvoice){
             return res.status(400).send({success:false,message:"invoice already exists"})
         }
-        const vendorPurchase = await vendorPurchaseModel.create({date,invoiceNo,vendorName,contact,status})
+        const vendorPurchase = await vendorPurchaseModel.create({date,invoiceNo,vendorName,vendorValue,contact,status})
         let storeItem
         for(const item of storeItems){
          storeItem = await storeItemModel.create({vendorPurchase:vendorPurchase._id,itemName:item.itemName,itemNo:item.itemNo,amount:item.amount,stock:item.stock,sellingPrice:item.sellingPrice,category:item.category,status:item.status})
@@ -29,53 +30,12 @@ exports.addInventoryStock = async(req,res)=>{
 
 exports.getInventoryStock = async(req,res)=>{
     try {
-        const result = await storeItemModel.aggregate([
-            {
-              $lookup: {
-                from: "vendorpurchases",
-                localField: "vendorPurchase",
-                foreignField: "_id",
-                as: "vendorPurchase"
-              }
-            },
-            { $unwind: "$vendorPurchase" },
-          
-            {
-              $group: {
-                _id: "$vendorPurchase._id",
-                vendorPurchase: { $first: "$vendorPurchase" },
-                totalAmount: { $sum: "$amount" },
-          
-                items: {
-                  $push: {
-                    _id: "$_id",
-                    itemName: "$itemName",
-                    itemNo: "$itemNo",
-                    amount: "$amount",
-                    stock: "$stock",
-                    sellingPrice: "$sellingPrice",
-                    category: "$category",
-                    status: "$status",
-                    createdAt: "$createdAt",
-                    updatedAt: "$updatedAt"
-                  }
-                }
-              }
-            },
-            {
-              $project: {
-                _id: 0,
-                vendorPurchase: 1,
-                totalAmount: 1,
-                items: 1
-              }
-            }
-          ]);
+        const result =await getVendorPurchaseSummary(req.query)
           
         if(result.length === 0){
-            return res.status(404).send({success:false,message:"inventory stock not found"})
+            return res.status(200).send({success:false,data:result,message:"inventory stock not found"})
         }
-        return res.send({success:true,data:result,message:"inventory stock fetched successfully"})
+        return res.status(200).send({success:true,data:result,message:"inventory stock fetched successfully"})
     } catch (error) {
         return res.status(500).send({success:false,message:"internal server down",error:error.message})
     }
@@ -97,7 +57,7 @@ exports.getInventoryStockById = async(req,res)=>{
 exports.updateInventoryProduct = async (req, res) => {
   try {
     const { id } = req.params;
-    const { date, invoiceNo, vendorName, contact, status, storeItems = [] } = req.body;
+    const { date, invoiceNo, vendorName,vendorValue, contact, status, storeItems = [] } = req.body;
 
     // 1️⃣ Check vendor purchase
     const vendorDoc = await vendorPurchaseModel.findById(id);
@@ -108,7 +68,7 @@ exports.updateInventoryProduct = async (req, res) => {
     // 2️⃣ Update vendor details
     await vendorPurchaseModel.findByIdAndUpdate(
       id,
-      { date, invoiceNo, vendorName, contact, status },
+      { date, invoiceNo, vendorName,vendorValue, contact, status },
       { new: true }
     );
 
@@ -480,7 +440,7 @@ exports.deleteInventoryItem = async (req, res) => {
   }
 };
 
-exports.getAllCanteenItem = async (req, res) => {
+exports.getAllCanteenItem1 = async (req, res) => {
   try {
     const {
       page,
@@ -567,6 +527,102 @@ exports.getAllCanteenItem = async (req, res) => {
       success: false,
       message: "internal server dow",
       error: error,
+    });
+  }
+};
+
+exports.getAllCanteenItem = async (req, res) => {
+  try {
+    const {
+      search,                  // 🔑 single keyword (matches itemName | category | itemNo)
+      page,
+      limit,
+      sortField = "createdAt",
+      sortOrder = "desc",
+      status,
+    } = req.query;
+
+    /* 1️⃣ Build filter */
+    const filter = {};
+    if (status) filter.status = status;
+
+    // If a search term is given, match any of the 3 fields (case-insensitive)
+    if (search) {
+      filter.$or = [
+        { itemName: { $regex: search, $options: "i" } },
+        { category: { $regex: search, $options: "i" } },
+        { itemNo:   { $regex: search, $options: "i" } },
+      ];
+    }
+
+    /* 2️⃣ Base query with sorting */
+    const query = tuckShopModel.find(filter);
+    const sort = {};
+    sort[sortField] = sortOrder.toLowerCase() === "asc" ? 1 : -1;
+    query.sort(sort);
+
+    /* 3️⃣ Pagination */
+    let paginated = false;
+    if (page && limit) {
+      const p = Number(page)  || 1;
+      const l = Number(limit) || 10;
+      query.skip((p - 1) * l).limit(l);
+      paginated = true;
+    }
+
+    /* 4️⃣ Fetch items */
+    const items = await query.exec();
+    if (!items.length) {
+      return res.status(200).json({ success: true, message: "No data found" });
+    }
+
+    /* 5️⃣ Aggregate total stock for returned items */
+    const itemNos = items.map(i => i.itemNo);
+    const inventoryTotals = await storeItemModel.aggregate([
+      { $match: { itemNo: { $in: itemNos } } },
+      {
+        $group: {
+          _id: {
+            itemName: "$itemName",
+            itemNo:   "$itemNo",
+            category: "$category",
+          },
+          totalQty: { $sum: "$stock" },
+        },
+      },
+    ]);
+
+    /* 6️⃣ Map totals to each tuck-shop item */
+    const totalMap = new Map();
+    inventoryTotals.forEach(doc => {
+      const key = `${doc._id.itemName}|${doc._id.itemNo}|${doc._id.category}`;
+      totalMap.set(key, doc.totalQty);
+    });
+
+    const withTotals = items.map(item => {
+      const key = `${item.itemName}|${item.itemNo}|${item.category}`;
+      return { ...item.toObject(), totalQty: totalMap.get(key) || 0 };
+    });
+
+    /* 7️⃣ Response */
+    if (paginated) {
+      const totalCount = await tuckShopModel.countDocuments(filter);
+      return res.status(200).json({
+        success: true,
+        page: Number(page),
+        limit: Number(limit),
+        totalCount,
+        data: withTotals,
+      });
+    }
+
+    return res.status(200).json({ success: true, data: withTotals });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "internal server down",
+      error,
     });
   }
 };

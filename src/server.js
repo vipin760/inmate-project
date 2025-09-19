@@ -27,6 +27,7 @@ const bulkOperations = require("./routes/bulkOprationRoutes");
 const departmentRoles = require("./routes/departmentRoutes");
 const inmateLocationRoutes = require('./routes/inmateLocationRoutes')
 const inventoryRoutes = require('./routes/inventoryRoutes')
+const backupRoutes = require('./routes/backupRoutes')
 const morgan = require("morgan");
 
 // const allowedOrigins = ["http://localhost:5173"]
@@ -58,7 +59,7 @@ app.use("/bulk-oprations", authenticateToken, bulkOperations);
 app.use("/department", authenticateToken, departmentRoles);
 app.use("/location", authenticateToken, inmateLocationRoutes)
 app.use('/inventory',authenticateToken,inventoryRoutes)
-
+app.use("/backup",authenticateToken,backupRoutes)
 
 
 app.listen(process.env.PORT, () => {

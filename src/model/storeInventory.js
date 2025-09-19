@@ -5,7 +5,7 @@ const storeInventorySchema = new mongoose.Schema({
   vendorPurchase: { type: mongoose.Schema.Types.ObjectId, ref: "VendorPurchase", required: true },
   itemName:      { type: String, required: true },      // e.g. Britannia Biscuit
   itemNo:        { type: String, required: true },      // e.g. ITM001
-  amount:        { type: Number, required: true },      // total cost for this item batch
+  amount:        { type: Number },      // total cost for this item batch
   stock:         { type: Number, required: true },      // current store stock
   sellingPrice:  { type: Number, required: true },      // price to canteen
   category:      { type: String },                      // optional (Snacks, Soap…)
