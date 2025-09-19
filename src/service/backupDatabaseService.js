@@ -1,23 +1,35 @@
-const { exec } = require("child_process");
 const path = require("path");
 const fs = require("fs");
+const { exec } = require("child_process");
+const backupLocationModel = require("../model/backupLocationModel");
 
 async function backupDatabase() {
-  const dateStamp = new Date().toISOString().split("T")[0]; 
-  const backupDir = path.join(__dirname, "..", "public", "backups");
-  const backupPath = path.join(backupDir, `backup-${dateStamp}`);
+  console.log("<><>woekinngngngn")
+  try {
+    const backupDoc = await backupLocationModel.findOne().lean();
+    console.log("<><>backupDoc",backupDoc)
+    let backupDir = backupDoc?.path || path.join(__dirname, "..", "public", "backups");
+console.log("<><>backupDir",backupDir);
 
-  if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+    backupDir = path.resolve(backupDir);
 
-  const cmd = `mongodump --uri="mongodb://localhost:27017/yourdb" --out="${backupPath}"`;
+    const dateStamp = new Date().toISOString().split("T")[0];
+    const backupPath = path.join(backupDir, `backup-${dateStamp}`);
 
-  exec(cmd, (err, stdout, stderr) => {
-    if (err) {
-      console.error("Backup failed:", err.message);
-    } else {
-      console.log(`✅ Backup completed: ${backupPath}`);
-    }
-  });
+    if (!fs.existsSync(backupPath)) fs.mkdirSync(backupPath, { recursive: true });
+
+    const cmd = `mongodump --uri="mongodb://localhost:27017/Inmate-dev" --out="${backupPath}"`;
+
+    exec(cmd, (err, stdout, stderr) => {
+      if (err) {
+        console.error("Backup failed:", err.message);
+      } else {
+        console.log(`✅ Backup completed: ${backupPath}`);
+      }
+    });
+  } catch (error) {
+    console.error("Error fetching backup location:", error.message);
+  }
 }
 
 module.exports = backupDatabase;

@@ -4,11 +4,12 @@ const path = require('path');
 require('dotenv').config()
 const cors = require('cors');
 const { dbConnect } = require('./config/db');
-const { scheduleBackup } = require('./config/cronBackup');
+const { scheduleBackup, rescheduleBackupOnUpdate } = require('./config/cronBackup');
 
 dbConnect();
 // === Daily Backup at 12:00 AM ===
-scheduleBackup();
+scheduleBackup();           // initial schedule
+rescheduleBackupOnUpdate();
 
 app.use(express.json());
 
