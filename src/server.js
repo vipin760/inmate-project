@@ -58,6 +58,7 @@ app.use("/logs", authenticateToken, auditLogsRoutes);
 app.use("/bulk-oprations", authenticateToken, bulkOperations);
 app.use("/department", authenticateToken, departmentRoles);
 app.use("/location", authenticateToken, inmateLocationRoutes)
+// inventory and canteen operation
 app.use('/inventory',authenticateToken,inventoryRoutes)
 app.use("/backup",authenticateToken,backupRoutes)
 

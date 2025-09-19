@@ -115,185 +115,103 @@ exports.updateInventoryProduct = async (req, res) => {
   }
 };
 
-exports.transferInventoryToCanteenInventory1 = async(req,res)=>{
-    try {
-         const { itemName, category, itemNo, transferQty } = req.body;
-    if (!itemNo || !transferQty) {
-      return res.status(400).json({
-        success: false,
-        message: "itemName, category, itemNo and transferQty are required"
-      });
-    }
+// exports.transferInventoryToCanteenInventory = async (req, res) => {
+//   try {
+//     const { itemNo, transferQty } = req.body;
 
-    const qty = Number(transferQty);
-    if (isNaN(qty) || qty <= 0) {
-      return res.status(400).json({
-        success: false,
-        message: "transferQty must be a positive number"
-      });
-    }
+//     if (!itemNo || !transferQty) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "itemNo and transferQty are required",
+//       });
+//     }
 
-    // ✅ 2. Find total stock available in StoreInventory
-    const totalStore = await storeItemModel.aggregate([
-      {
-        $match: { itemName, category, itemNo }
-      },
-      {
-        $group: { _id: null, totalQty: { $sum: "$stock" } }
-      }
-    ]);
+//     // Fetch store stock (only items with stock > 0)
+//     const storeItems = await storeItemModel
+//       .find({ itemNo, stock: { $gt: 0 } })
+//       .sort({ createdAt: -1 });
 
-    const availableStock = totalStore.length ? totalStore[0].totalQty : 0;
-    if (availableStock < qty) {
-      return res.status(400).json({
-        success: false,
-        message: `Only ${availableStock} units available in store`
-      });
-    }
+//     if (!storeItems.length) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "No stock available in store for this item",
+//       });
+//     }
 
-    // ✅ 3. Deduct quantity from StoreInventory (oldest-first or just first found)
-    //    Here we simply deduct across items until qty fulfilled
-    let remaining = qty;
-    const storeItems = await storeItemModel.find({ itemName, category, itemNo }).sort({ createdAt: 1 });
-    for (const item of storeItems) {
-      if (remaining <= 0) break;
-      const deduct = Math.min(item.stock, remaining);
-      await storeItemModel.findByIdAndUpdate(item._id, { $inc: { stock: -deduct } });
-      remaining -= deduct;
-    }
+//     const totalAvailable = storeItems.reduce((sum, i) => sum + i.stock, 0);
+//     if (totalAvailable < transferQty) {
+//       return res.status(400).json({
+//         success: false,
+//         message: `Only ${totalAvailable} units available, cannot transfer ${transferQty}`,
+//       });
+//     }
 
-    // ✅ 4. Upsert canteen inventory
-    const canteenItem = await CanteenInventory.findOne({ itemNo });
-    if (canteenItem) {
-      await CanteenInventory.findByIdAndUpdate(
-        canteenItem._id,
-        { 
-          $inc: { currentStock: qty, totalStock: qty },
-          itemNo,
-          status: "Active"
-        },
-        { new: true }
-      );
-    } else {
-      await CanteenInventory.create({
-        itemNo,
-        storeItem: storeItems[0]._id, // reference to first store item
-        currentStock: qty,
-        totalStock: qty,
-        status: "Active"
-      });
-    }
+//     // ✅ pick reference data (all docs share same itemName/itemNo/category)
+//     const { itemName, category, sellingPrice } = storeItems[0];
 
-    // ✅ 5. Update TuckShop stockQuantity as well
-    const tuck = await tuckShopModel.findOne({ itemNo });
-    if (tuck) {
-      await tuckShopModel.findByIdAndUpdate(tuck._id, {
-        $inc: { stockQuantity: qty }
-      });
-    } else {
-      // optional: if not found, create it
-      await tuckShopModel.create({
-        itemName,
-        category,
-        itemNo,
-        price: 0,
-        stockQuantity: qty,
-        status: "Active"
-      });
-    }
+//     let remaining = transferQty;
+//     const bulkOps = [];
 
-    return res.status(200).json({
-      success: true,
-      message: `Transferred ${qty} units of ${itemName} to canteen successfully`
-    });
-    } catch (error) {
-        return res.status(500).send({success:false,message:"internal server down",error:error.message})
-    }
-}
+//     for (const doc of storeItems) {
+//       if (remaining <= 0) break;
 
-exports.transferInventoryToCanteenInventory2 = async(req,res)=>{
-  try {
-       const { itemName, category, itemNo, transferQty } = req.body;
-  if (!itemNo || !transferQty) {
-    return res.status(400).json({
-      success: false,
-      message: "itemName, category, itemNo and transferQty are required"
-    });
-  }
+//       if (doc.stock <= remaining) {
+//         bulkOps.push({
+//           updateOne: { filter: { _id: doc._id }, update: { $set: { stock: 0 } } },
+//         });
+//         remaining -= doc.stock;
+//       } else {
+//         bulkOps.push({
+//           updateOne: {
+//             filter: { _id: doc._id },
+//             update: { $inc: { stock: -remaining } },
+//           },
+//         });
+//         remaining = 0;
+//       }
+//     }
 
-  const storeItems = await storeItemModel
-      .find({ itemNo, stock: { $gt: 0 } })
-      .sort({ createdAt: -1 });
+//     await storeItemModel.bulkWrite(bulkOps);
 
-      if (!storeItems.length) {
-        return res.status(400).json({
-          success: false,
-          message: "No stock available in store for this item",
-        });
-      }
+//     // ✅ Update or create tuck shop record
+//     await tuckShopModel.updateOne(
+//       { itemNo },
+//       {
+//         $setOnInsert: {
+//           itemName,
+//           category: category || "General",
+//           price: sellingPrice,         // use sellingPrice as canteen price
+//           status: "Active",
+//           description: "",
+//         },
+//         $inc: { stockQuantity: transferQty },
+//       },
+//       { upsert: true }
+//     );
 
-      const totalAvailable = storeItems.reduce((sum, i) => sum + i.stock, 0);
-
-      if (totalAvailable < transferQty) {
-        return res.status(400).json({
-          success: false,
-          message: `Only ${totalAvailable} units available, cannot transfer ${transferQty}`,
-        });
-      }
-
-      let remaining = transferQty;
-      const bulkOps = [];
-
-
-      for (const doc of storeItems) {
-        if (remaining <= 0) break;
-  
-        if (doc.stock <= remaining) {
-          // Deplete entire doc stock
-          bulkOps.push({
-            updateOne: {
-              filter: { _id: doc._id },
-              update: { $set: { stock: 0 } },
-            },
-          });
-          remaining -= doc.stock;
-        } else {
-          // Partially reduce stock
-          bulkOps.push({
-            updateOne: {
-              filter: { _id: doc._id },
-              update: { $inc: { stock: -remaining } },
-            },
-          });
-          remaining = 0;
-        }
-      }
-
-
-      await storeItemModel.bulkWrite(bulkOps);
-
-      await tuckShopModel.updateOne(
-        { itemNo },
-        {
-          $setOnInsert: { itemName, category, status: "Active" },
-          $inc: { stockQuantity: transferQty },
-        },
-        { upsert: true }
-      );
-
-
-      return res.status(200).json({
-        success: true,
-        message: `Transferred ${transferQty} units of ${itemName} to canteen successfully`,
-      });
-  } catch (error) {
-      return res.status(500).send({success:false,message:"internal server down",error:error.message})
-  }
-}
+//     return res.status(200).json({
+//       success: true,
+//       message: `Transferred ${transferQty} units of ${itemName} to canteen successfully`,
+//     });
+//   } catch (error) {
+//     return res.status(500).json({
+//       success: false,
+//       message: "Internal server error",
+//       error: error.message,
+//     });
+//   }
+// };
 
 exports.transferInventoryToCanteenInventory = async (req, res) => {
   try {
-    const { itemNo, transferQty } = req.body;
+    const {
+      itemNo,
+      transferQty,
+      itemName,
+      price,
+      category,
+      status,
+    } = req.body;
 
     if (!itemNo || !transferQty) {
       return res.status(400).json({
@@ -302,7 +220,33 @@ exports.transferInventoryToCanteenInventory = async (req, res) => {
       });
     }
 
-    // Fetch store stock (only items with stock > 0)
+    // ✅ CASE 1: Direct set if full product info present
+    if (itemName && price && category && status) {
+      // Upsert & set stockQuantity to transferQty directly
+      const result = await tuckShopModel.updateOne(
+        { itemNo },
+        {
+          $set: {
+            itemName,
+            category,
+            price,
+            status,
+            description: "",
+            stockQuantity: transferQty, // ← direct set, not increment
+          },
+        },
+        { upsert: true }
+      );
+
+      return res.status(200).json({
+        success: true,
+        mode: "direct-set",
+        message: `Stock of ${itemName} set to ${transferQty} in canteen successfully`,
+        data: result,
+      });
+    }
+
+    // ✅ CASE 2: Store inventory transfer (same as before)
     const storeItems = await storeItemModel
       .find({ itemNo, stock: { $gt: 0 } })
       .sort({ createdAt: -1 });
@@ -322,52 +266,44 @@ exports.transferInventoryToCanteenInventory = async (req, res) => {
       });
     }
 
-    // ✅ pick reference data (all docs share same itemName/itemNo/category)
-    const { itemName, category, sellingPrice } = storeItems[0];
-
     let remaining = transferQty;
     const bulkOps = [];
-
     for (const doc of storeItems) {
       if (remaining <= 0) break;
-
       if (doc.stock <= remaining) {
-        bulkOps.push({
-          updateOne: { filter: { _id: doc._id }, update: { $set: { stock: 0 } } },
-        });
+        bulkOps.push({ updateOne: { filter: { _id: doc._id }, update: { $set: { stock: 0 } } } });
         remaining -= doc.stock;
       } else {
         bulkOps.push({
-          updateOne: {
-            filter: { _id: doc._id },
-            update: { $inc: { stock: -remaining } },
-          },
+          updateOne: { filter: { _id: doc._id }, update: { $inc: { stock: -remaining } } },
         });
         remaining = 0;
       }
     }
-
     await storeItemModel.bulkWrite(bulkOps);
 
-    // ✅ Update or create tuck shop record
+    const { itemName: sName, category: sCategory, sellingPrice } = storeItems[0];
+
+    // Set canteen stock directly to transferQty (not increment)
     await tuckShopModel.updateOne(
       { itemNo },
       {
-        $setOnInsert: {
-          itemName,
-          category: category || "General",
-          price: sellingPrice,         // use sellingPrice as canteen price
+        $set: {
+          itemName: sName,
+          category: sCategory || "General",
+          price: sellingPrice,
           status: "Active",
           description: "",
+          stockQuantity: transferQty, // ← direct set
         },
-        $inc: { stockQuantity: transferQty },
       },
       { upsert: true }
     );
 
     return res.status(200).json({
       success: true,
-      message: `Transferred ${transferQty} units of ${itemName} to canteen successfully`,
+      mode: "from-store",
+      message: `Stock of ${sName} set to ${transferQty} in canteen from store`,
     });
   } catch (error) {
     return res.status(500).json({
@@ -531,86 +467,73 @@ exports.getAllCanteenItem1 = async (req, res) => {
   }
 };
 
+
+////////////////////////////////////////////////////////
 exports.getAllCanteenItem = async (req, res) => {
   try {
     const {
-      search,                  // 🔑 single keyword (matches itemName | category | itemNo)
       page,
       limit,
       sortField = "createdAt",
       sortOrder = "desc",
+      itemName,
+      category,
       status,
     } = req.query;
 
-    /* 1️⃣ Build filter */
+    /* 1️⃣ Build filter for TuckShop */
     const filter = {};
+    if (itemName) filter.itemName = { $regex: itemName, $options: "i" };
+    if (category) filter.category = { $regex: `^${category}$`, $options: "i" };
     if (status) filter.status = status;
 
-    // If a search term is given, match any of the 3 fields (case-insensitive)
-    if (search) {
-      filter.$or = [
-        { itemName: { $regex: search, $options: "i" } },
-        { category: { $regex: search, $options: "i" } },
-        { itemNo:   { $regex: search, $options: "i" } },
-      ];
-    }
-
-    /* 2️⃣ Base query with sorting */
+    /* 2️⃣ Base query */
     const query = tuckShopModel.find(filter);
+
+    /* 3️⃣ Sorting */
     const sort = {};
     sort[sortField] = sortOrder.toLowerCase() === "asc" ? 1 : -1;
     query.sort(sort);
 
-    /* 3️⃣ Pagination */
+    /* 4️⃣ Pagination */
     let paginated = false;
+    let pageNum = 1, limitNum = 0;
     if (page && limit) {
-      const p = Number(page)  || 1;
-      const l = Number(limit) || 10;
-      query.skip((p - 1) * l).limit(l);
+      pageNum = parseInt(page) || 1;
+      limitNum = parseInt(limit) || 10;
+      query.skip((pageNum - 1) * limitNum).limit(limitNum);
       paginated = true;
     }
 
-    /* 4️⃣ Fetch items */
+    /* 5️⃣ Fetch tuck shop items */
     const items = await query.exec();
     if (!items.length) {
-      return res.status(200).json({ success: true, message: "No data found" });
+      return res.status(200).json({ success: true, message: "No data found", data: [] });
     }
 
-    /* 5️⃣ Aggregate total stock for returned items */
+    /* 6️⃣ Combine store stock for these items */
     const itemNos = items.map(i => i.itemNo);
-    const inventoryTotals = await storeItemModel.aggregate([
+    const storeTotals = await storeItemModel.aggregate([
       { $match: { itemNo: { $in: itemNos } } },
-      {
-        $group: {
-          _id: {
-            itemName: "$itemName",
-            itemNo:   "$itemNo",
-            category: "$category",
-          },
-          totalQty: { $sum: "$stock" },
-        },
-      },
+      { $group: { _id: "$itemNo", totalStock: { $sum: "$stock" } } },
     ]);
 
-    /* 6️⃣ Map totals to each tuck-shop item */
-    const totalMap = new Map();
-    inventoryTotals.forEach(doc => {
-      const key = `${doc._id.itemName}|${doc._id.itemNo}|${doc._id.category}`;
-      totalMap.set(key, doc.totalQty);
-    });
+    const storeMap = new Map();
+    storeTotals.forEach(s => storeMap.set(s._id, s.totalStock));
 
-    const withTotals = items.map(item => {
-      const key = `${item.itemName}|${item.itemNo}|${item.category}`;
-      return { ...item.toObject(), totalQty: totalMap.get(key) || 0 };
-    });
+    /* 7️⃣ Attach totalQty = tuckShop stock + store stock */
+    const withTotals = items.map(item => ({
+      ...item.toObject(),
+      totalQty: item.stockQuantity + (storeMap.get(item.itemNo) || 0),
+    }));
 
-    /* 7️⃣ Response */
+    /* 8️⃣ Send response */
     if (paginated) {
       const totalCount = await tuckShopModel.countDocuments(filter);
       return res.status(200).json({
         success: true,
-        page: Number(page),
-        limit: Number(limit),
+        page: pageNum,
+        limit: limitNum,
         totalCount,
         data: withTotals,
       });
@@ -621,11 +544,45 @@ exports.getAllCanteenItem = async (req, res) => {
   } catch (error) {
     return res.status(500).json({
       success: false,
-      message: "internal server down",
-      error,
+      message: "Internal server error",
+      error: error.message,
     });
   }
 };
+
+exports.deleteCanteenItem = async (req, res) => {
+  try {
+    const { id:itemNo } = req.params
+
+    if (!itemNo) {
+      return res.status(400).json({
+        success: false,
+        message: "itemNo is required to delete an item",
+      });
+    }
+
+    // Delete from tuck shop
+    const tuckResult = await tuckShopModel.deleteOne({ itemNo });
+
+    // Delete from store inventory
+    const storeResult = await storeItemModel.deleteMany({ itemNo });
+
+    return res.status(200).json({
+      success: true,
+      message: `Item ${itemNo} deleted successfully from canteen and store inventory`
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+};
+
+////////////////////////////////////////////////////////
+
+
 
 exports.getCanteenItemListOptions = async(req,res)=>{
     try {
@@ -641,4 +598,38 @@ exports.getCanteenItemListOptions = async(req,res)=>{
     }
 }
 
+// create canteen stock
+exports.createCanteenStock = async(req,res)=>{
+    try {
+      const {itemName,category,itemNo,stockQuantity,sellingPrice,status} = req.body;
+      const inventoryItem = await storeItemModel.findOne({ itemNo });
+      if(inventoryItem){
+        return res.status(404).json({ success: false, message: "item already exists" });
+      }
+      const tuckshopItem = await tuckShopModel.findOne({ itemNo });
+      if(tuckshopItem){
+        return res.status(404).json({ success: false, message: "item already exists in tuckshop" });
+      }
+      const storeItem = await storeItemModel.create({
+        itemName,
+        category,
+        itemNo,
+        stock:stockQuantity,
+        sellingPrice,
+        status
+      })
 
+       await tuckShopModel.create({
+        itemName,
+        price:sellingPrice,
+        stockQuantity,
+        category,
+        itemNo,
+        status
+      })
+      return res.status(200).json({ success: true, message: "canteen stock created successfully" });
+
+    } catch (error) {
+        return res.status(500).json({ success: false, message: "internal server down", error: error });
+    }
+}

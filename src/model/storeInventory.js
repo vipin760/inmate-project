@@ -2,7 +2,7 @@
 const mongoose = require("mongoose");
 
 const storeInventorySchema = new mongoose.Schema({
-  vendorPurchase: { type: mongoose.Schema.Types.ObjectId, ref: "VendorPurchase", required: true },
+  vendorPurchase: { type: mongoose.Schema.Types.ObjectId, ref: "VendorPurchase" },
   itemName:      { type: String, required: true },      // e.g. Britannia Biscuit
   itemNo:        { type: String, required: true },      // e.g. ITM001
   amount:        { type: Number },      // total cost for this item batch

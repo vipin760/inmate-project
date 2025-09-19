@@ -1,5 +1,5 @@
 const express = require('express');
-const { addInventoryStock, getInventoryStock, getInventoryStockById, updateInventoryProduct,deleteStoreData,deleteInventoryItem,getAllCanteenItem,transferInventoryToCanteenInventory,getCanteenItemListOptions } = require('../controllers/inventoryController');
+const { addInventoryStock, getInventoryStock, getInventoryStockById, updateInventoryProduct,deleteStoreData,deleteInventoryItem,getAllCanteenItem,transferInventoryToCanteenInventory,getCanteenItemListOptions, createCanteenStock,deleteCanteenItem } = require('../controllers/inventoryController');
 const router = express.Router();
 
 router.post('/',addInventoryStock)
@@ -11,6 +11,7 @@ router.get('/:id',getInventoryStockById)
 router.put('/:id',updateInventoryProduct)
 router.delete('/item/:id',deleteStoreData)
 router.delete('/store/:id',deleteInventoryItem)
-
+router.post('/create-canteen-stock',createCanteenStock)
+router.delete('/canteen-item/:id',deleteCanteenItem)
 
 module.exports = router;
