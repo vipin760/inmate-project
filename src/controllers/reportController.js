@@ -4,7 +4,10 @@ const POSShoppingCart = require('../model/posShoppingCart');
 const TuckShop = require("../model/tuckShopModel");
 const logAudit = require("../utils/auditlogger");
 const { Parser } = require('json2csv');
-const moment = require('moment')
+const moment = require('moment');
+const { getVendorPurchaseSummary } = require('../service/storeInventoryService');
+const tuckShopModel = require('../model/tuckShopModel');
+const storeInventory = require('../model/storeInventory');
 
 exports.quickStatistics = async (req, res) => {
     try {
@@ -427,7 +430,6 @@ exports.intimateBalanceReport = async (req, res) => {
     }
 };
 
-
 exports.transactionSummaryReport = async (req, res) => {
     try {
         const { dateRange = "yearly", format = "json", department } = req.body;
@@ -709,3 +711,264 @@ exports.wageDistributionReport = async (req, res) => {
         return res.status(500).json({ message: "Internal server error", error: error.message });
     }
 }
+
+exports.inventoryStockHistoryReport1 = async (req, res) => {
+  try {
+    let { startDate, endDate, dateRange, format = 'json' } = req.body;
+
+    // --- Validate input ---
+    if (!dateRange && (!startDate || !endDate)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide either dateRange or startDate & endDate'
+      });
+    }
+
+    // --- Determine time window ---
+    let fromDate, toDate = new Date();
+    toDate.setHours(23, 59, 59, 999);
+
+    if (dateRange) {
+      fromDate = new Date();
+      fromDate.setHours(0, 0, 0, 0);
+
+      switch (dateRange.toLowerCase()) {
+        case '7daysago':
+          fromDate.setDate(fromDate.getDate() - 6);
+          break;
+        case '1monthago':
+          fromDate.setMonth(fromDate.getMonth() - 1);
+          break;
+        case '3monthsago':
+          fromDate.setMonth(fromDate.getMonth() - 3);
+          break;
+        default:
+          return res.status(400).json({ success: false, message: 'Invalid dateRange value' });
+      }
+    } else {
+      fromDate = new Date(startDate);
+      toDate = new Date(endDate);
+      fromDate.setHours(0, 0, 0, 0);
+      toDate.setHours(23, 59, 59, 999);
+    }
+
+    // --- Fetch inventory data (you can add your own filters inside getVendorPurchaseSummary) ---
+    const inventoryData = await getVendorPurchaseSummary({
+      ...req.query,
+      fromDate,
+      toDate
+    });
+
+    if (!inventoryData || inventoryData.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'No inventory stock history found in selected range'
+      });
+    }
+console.log("<><>inventoryData",inventoryData)
+    // Format each record (example fields—adjust to match your schema)
+    const formatted = inventoryData.map(item => ({
+      itemName: item.itemName,
+      category: item.category,
+      stockQuantity: item.stockQuantity,
+      price: item.price,
+      totalQty: item.totalQty,
+      status: item.status,
+      updatedAt: moment(item.updatedAt).format('DD-MM-YYYY hh:mm:ss A')
+    }));
+
+    const extractedItems = inventoryData.flatMap(entry =>
+  entry.items.map(itm =>
+    ({
+    vendorId: entry.vendorPurchase._id,
+    invoiceNo: entry.vendorPurchase.invoiceNo,
+    vendorName: entry.vendorPurchase.vendorName,
+    vendorValue: entry.vendorPurchase.vendorValue,
+    status: entry.vendorPurchase.status,
+    date: entry.vendorPurchase.date,
+    itemName: itm.itemName,
+    quantity: itm.stock,
+    price: itm.sellingPrice
+  })
+  )
+);
+
+    // --- CSV export if requested ---
+    if (format === 'csv') {
+      const fields = [
+        'itemName',
+        'category',
+        'stockQuantity',
+        'price',
+        'totalQty',
+        'status',
+        'updatedAt'
+      ];
+      const parser = new Parser({ fields });
+      const csv = parser.parse(formatted);
+
+      res.setHeader(
+        'Content-Disposition',
+        'attachment; filename=inventory_stock_history.csv'
+      );
+      res.setHeader('Content-Type', 'text/csv');
+      return res.status(200).end(csv);
+    }
+
+    // --- Default JSON ---
+    return res.status(200).json({
+      success: true,
+      totalItems: formatted.length,
+      data: formatted
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error.message
+    });
+  }
+};
+
+exports.inventoryStockHistoryReport = async (req, res) => {
+  try {
+    const {
+      page,
+      limit,
+      sortField = "createdAt",
+      sortOrder = "desc",
+      itemName,
+      category,
+      status,
+      startDate,
+      endDate,
+      dateRange,
+      format = 'json'
+    } = req.body;
+
+    // --- Build filter ---
+    const filter = {};
+    if (itemName) filter.itemName = { $regex: itemName, $options: "i" };
+    if (category) filter.category = { $regex: `^${category}$`, $options: "i" };
+    if (status) filter.status = status;
+
+    // --- Handle date filtering ---
+    if (startDate || endDate || dateRange) {
+      let fromDate, toDate = new Date();
+      toDate.setHours(23, 59, 59, 999);
+
+      if (dateRange) {
+        fromDate = new Date();
+        fromDate.setHours(0, 0, 0, 0);
+        switch (dateRange.toLowerCase()) {
+          case "7daysago":
+            fromDate.setDate(fromDate.getDate() - 6);
+            break;
+          case "1monthago":
+            fromDate.setMonth(fromDate.getMonth() - 1);
+            break;
+          case "3monthsago":
+            fromDate.setMonth(fromDate.getMonth() - 3);
+            break;
+          default:
+            return res.status(400).json({ success: false, message: "Invalid dateRange value" });
+        }
+      } else {
+        fromDate = new Date(startDate);
+        toDate = new Date(endDate);
+        fromDate.setHours(0, 0, 0, 0);
+        toDate.setHours(23, 59, 59, 999);
+      }
+
+      filter.updatedAt = { $gte: fromDate, $lte: toDate };
+    }
+
+    // --- Base query ---
+    const query = tuckShopModel.find(filter);
+
+    // --- Sorting ---
+    const sort = {};
+    sort[sortField] = sortOrder.toLowerCase() === "asc" ? 1 : -1;
+    query.sort(sort);
+
+    // --- Pagination ---
+    let paginated = false;
+    let pageNum = 1, limitNum = 0;
+    if (page && limit) {
+      pageNum = parseInt(page) || 1;
+      limitNum = parseInt(limit) || 10;
+      query.skip((pageNum - 1) * limitNum).limit(limitNum);
+      paginated = true;
+    }
+
+    // --- Fetch items ---
+    const items = await query.exec();
+    if (!items.length) {
+      return res.status(200).json({ success: true, message: "No data found", data: [] });
+    }
+
+    // --- Compute totalQty from storeItemModel ---
+    const itemNos = items.map(i => i.itemNo);
+    const storeTotals = await storeInventory.aggregate([
+      { $match: { itemNo: { $in: itemNos } } },
+      { $group: { _id: "$itemNo", totalStock: { $sum: "$stock" } } },
+    ]);
+
+    const storeMap = new Map();
+    storeTotals.forEach(s => storeMap.set(s._id, s.totalStock));
+
+    const withTotalQty = items.map(item => ({
+      ...item.toObject(),
+      totalQty: item.stockQuantity + (storeMap.get(item.itemNo) || 0),
+      updatedAt: moment(item.updatedAt).format('DD-MM-YYYY hh:mm:ss A')
+    }));
+
+    // --- Total count ---
+    const totalCount = await tuckShopModel.countDocuments(filter);
+
+    // --- CSV export ---
+    if (format === 'csv') {
+      const fields = [
+        'itemName',
+        'price',
+        'stockQuantity',
+        'totalQty',
+        'category',
+        'itemNo',
+        'status',
+        'createdAt',
+        'updatedAt'
+      ];
+      const parser = new Parser({ fields });
+      const csv = parser.parse(withTotalQty);
+
+      res.setHeader('Content-Disposition', 'attachment; filename=inventory_stock_history.csv');
+      res.setHeader('Content-Type', 'text/csv');
+      return res.status(200).end(csv);
+    }
+
+    // --- Default JSON response ---
+    if (paginated) {
+      return res.status(200).json({
+        success: true,
+        page: pageNum,
+        limit: limitNum,
+        totalCount,
+        data: withTotalQty
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      totalCount,
+      data: withTotalQty
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+};

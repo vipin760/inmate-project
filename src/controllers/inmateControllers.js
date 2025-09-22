@@ -164,7 +164,7 @@ const getInmatesID = async (req, res) => {
     if (!id) {
       return res.status(400).json({ message: "ID is missing" })
     }
-     let findInmate;
+    let findInmate;
 
     if (mongoose.Types.ObjectId.isValid(id)) {
       findInmate = await InmateSchema.findById(id);
@@ -185,6 +185,12 @@ const updateInmate = async (req, res) => {
     const { id } = req.params;
     const updateBody = req.body;
     const { inmateId, descriptor } = req.body
+
+    const existingInmateID = await InmateSchema.findOne({ inmateId });
+    if (existingInmateID) {
+      return res.status(400).json({ success: false, message: "Inmate ID already exist" })
+    }
+
     if (descriptor) {
       const userData = await InmateSchema.findById(id).populate("user_id");
       const checkFaceMatch = await faceRecognitionExcludeUserService(descriptor, userData.user_id._id);

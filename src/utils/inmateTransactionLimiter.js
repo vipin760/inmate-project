@@ -108,9 +108,10 @@ exports.checkTransactionLimit = async (inmateId, amount, type) => {
       .replace(/\s+/g, "_");
     const limitObj = location.custodyLimits?.find(
       (c) => {
+        console.log("<><>c.custodyType.toLowerCase()",c.custodyType.toLowerCase(),"==",normalizedCustody)
         return c.custodyType.toLowerCase() === normalizedCustody
       }    );
-
+console.log("<><>limitObj",limitObj)
      if (!limitObj) {
       return {
         status: false,
