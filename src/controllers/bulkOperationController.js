@@ -10,153 +10,156 @@ const InmateSchema = require("../model/inmateModel");
 const userModel = require('../model/userModel');
 const bcrypt = require('bcrypt');
 const InmateLocation = require('../model/inmateLocationModel');
+// const { parse } =require('date-fns');
 
 const bulkUpsertInmates = async (req, res) => {
   try {
     await InmateLocation.findByIdAndUpdate(req.body.location, { $set: { purchaseStatus: "denied" } }).then(async (_d) => {
-    if (!req.file) {
-      return res.status(400).json({ message: 'No file uploaded' });
-    }
- 
-    let inmates;
-    const ext = req.file.originalname.split('.').pop().toLowerCase();
- 
-    if (ext === 'csv') {
-      const csvString = req.file.buffer.toString('utf-8');
-      inmates = parse(csvString, {
-        columns: true,
-        skip_empty_lines: true,
-        trim: true
-      });
-    } else if (ext === 'xlsx') {
-      const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
-      const sheetName = workbook.SheetNames[0];
-      inmates = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
-    } else {
-      return res.status(400).json({ message: 'Unsupported file format' });
-    }
- 
-    if (!Array.isArray(inmates) || inmates.length === 0) {
-      return res.status(400).json({ message: 'Uploaded file contains no data' });
-    }
- 
-    const results = {
-      created: [],
-      updated: [],
-      failed: []
-    };
- 
-    for (const inmate of inmates) {
-      const {
-        inmateId,
-        firstName,
-        lastName,
-        balance,
-        status,
-        cellNumber,
-        dateOfBirth,
-        admissionDate,
-        crimeType, custodyType,
-        location_id,
- 
-      } = inmate;
-      if(location_id !== req.body.location){
-        results.failed.push({ inmateId, reason: 'location id not matched' });
-        continue;
+      if (!req.file) {
+        return res.status(400).json({ message: 'No file uploaded' });
       }
-      if (
-        !inmateId || !firstName || !lastName ||
-        balance == null || !status || !cellNumber ||
-        !dateOfBirth || !admissionDate || !crimeType
-      ) {
-        results.failed.push({ inmateId, reason: 'Missing required fields' });
-        continue;
-      }
- 
-      const dob = new Date(dateOfBirth);
-      const admDate = new Date(admissionDate);
- 
-      if (isNaN(dob) || isNaN(admDate)) {
-        results.failed.push({ inmateId, reason: 'Invalid date format' });
-        continue;
-      }
- 
-      const existing = await Inmate.findOne({ inmateId: inmateId });
- 
-      if (existing) {
-        const isModified =
-          existing.firstName !== firstName ||
-          existing.lastName !== lastName ||
-          existing.balance !== parseFloat(balance) ||
-          existing.status !== status ||
-          existing.cellNumber !== cellNumber ||
-          existing.dateOfBirth.getTime() !== dob.getTime() ||
-          existing.admissionDate.getTime() !== admDate.getTime() ||
-          existing.crimeType !== crimeType;
-        existing.custodyType !== custodyType;
-        existing.location_id !== location_id;
- 
-        if (isModified) {
-          existing.firstName = firstName;
-          existing.lastName = lastName;
-          existing.balance = parseFloat(balance);
-          existing.status = status;
-          existing.cellNumber = cellNumber;
-          existing.dateOfBirth = dob;
-          existing.admissionDate = admDate;
-          existing.crimeType = crimeType;
-          existing.custodyType = custodyType;
-          existing.location_id = location_id;
- 
-          await existing.save();
-          results.updated.push(inmateId);
-        }
+
+      let inmates;
+      const ext = req.file.originalname.split('.').pop().toLowerCase();
+
+      if (ext === 'csv') {
+        const csvString = req.file.buffer.toString('utf-8');
+        inmates = parse(csvString, {
+          columns: true,
+          skip_empty_lines: true,
+          trim: true
+        });
+      } else if (ext === 'xlsx') {
+        const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+        const sheetName = workbook.SheetNames[0];
+        inmates = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
       } else {
-        const newInmate = new Inmate({
-          inmateId: inmateId,
+        return res.status(400).json({ message: 'Unsupported file format' });
+      }
+
+      if (!Array.isArray(inmates) || inmates.length === 0) {
+        return res.status(400).json({ message: 'Uploaded file contains no data' });
+      }
+
+      const results = {
+        created: [],
+        updated: [],
+        failed: []
+      };
+
+      for (const inmate of inmates) {
+        const {
+          inmateId,
           firstName,
           lastName,
-          balance: parseFloat(balance),
+          balance,
           status,
           cellNumber,
-          dateOfBirth: dob,
-          admissionDate: admDate,
-          crimeType,
-          location_id, custodyType
-        });
-        const savedInmate = await newInmate.save();
-        results.created.push(inmateId);
-        if (savedInmate) {
-          const hashedPassword = await bcrypt.hash(inmateId, 10);
-          const newUser = new userModel({ username: inmateId, fullname: inmateId,inmateId, password: hashedPassword, role: "INMATE", location_id });
-          await newUser.save().then((data) => {
- 
-          }).catch((error) => {
-            results.failed.push({ inmateId, reason: error.message });
-          })
+          dateOfBirth,
+          admissionDate,
+          crimeType, custodyType,
+          location_id,
+
+        } = inmate;
+        if (location_id !== req.body.location) {
+          results.failed.push({ inmateId, reason: 'location id not matched' });
+          continue;
         }
- 
- 
+        if (
+          !inmateId || !firstName || !lastName ||
+          balance == null || !status || !cellNumber ||
+          !dateOfBirth || !admissionDate || !crimeType
+        ) {
+          results.failed.push({ inmateId, reason: 'Missing required fields' });
+          continue;
+        }
+
+        // const dob = parse(dateOfBirth, 'dd-MM-yyyy', new Date());
+        // const admDate = parse(admissionDate, 'dd-MM-yyyy', new Date());
+
+        const dob = new Date(dateOfBirth);
+        const admDate = new Date(admissionDate);
+        if (isNaN(dob) || isNaN(admDate)) {
+          results.failed.push({ inmateId, reason: 'Invalid date format' });
+          continue;
+        }
+
+        const existing = await Inmate.findOne({ inmateId: inmateId });
+
+        if (existing) {
+          const isModified =
+            existing.firstName !== firstName ||
+            existing.lastName !== lastName ||
+            existing.balance !== parseFloat(balance) ||
+            existing.status !== status ||
+            existing.cellNumber !== cellNumber ||
+            existing.dateOfBirth.getTime() !== dob.getTime() ||
+            existing.admissionDate.getTime() !== admDate.getTime() ||
+            existing.crimeType !== crimeType;
+          existing.custodyType !== custodyType;
+          existing.location_id !== location_id;
+
+          if (isModified) {
+            existing.firstName = firstName;
+            existing.lastName = lastName;
+            existing.balance = parseFloat(balance);
+            existing.status = status;
+            existing.cellNumber = cellNumber;
+            existing.dateOfBirth = dob;
+            existing.admissionDate = admDate;
+            existing.crimeType = crimeType;
+            existing.custodyType = custodyType;
+            existing.location_id = location_id;
+
+            await existing.save();
+            results.updated.push(inmateId);
+          }
+        } else {
+          const newInmate = new Inmate({
+            inmateId: inmateId,
+            firstName,
+            lastName,
+            balance: parseFloat(balance),
+            status,
+            cellNumber,
+            dateOfBirth: dob,
+            admissionDate: admDate,
+            crimeType,
+            location_id, custodyType
+          });
+          const savedInmate = await newInmate.save();
+          results.created.push(inmateId);
+          if (savedInmate) {
+            const hashedPassword = await bcrypt.hash(inmateId, 10);
+            const newUser = new userModel({ username: inmateId, fullname: inmateId, inmateId, password: hashedPassword, role: "INMATE", location_id });
+            await newUser.save().then((data) => {
+
+            }).catch((error) => {
+              results.failed.push({ inmateId, reason: error.message });
+            })
+          }
+
+
+        }
       }
-    }
- 
-    await logAudit({
-      userId: req.user.id,
-      username: req.user.username,
-      action: 'BULK_UPSERT',
-      targetModel: 'Inmate',
-      targetId: null,
-      description: `Bulk upsert of inmates performed. Created: ${results.created.length}, Updated: ${results.updated.length}, Failed: ${results.failed.length}`,
-      changes: results
-    });
- 
-    return res.status(200).json({
-      success: true,
-      message: 'Bulk inmate operation completed',
-      results
-    });
- 
-  
+
+      await logAudit({
+        userId: req.user.id,
+        username: req.user.username,
+        action: 'BULK_UPSERT',
+        targetModel: 'Inmate',
+        targetId: null,
+        description: `Bulk upsert of inmates performed. Created: ${results.created.length}, Updated: ${results.updated.length}, Failed: ${results.failed.length}`,
+        changes: results
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: 'Bulk inmate operation completed',
+        results
+      });
+
+
 
     })
   } catch (error) {

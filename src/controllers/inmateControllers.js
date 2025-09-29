@@ -11,7 +11,7 @@ const userModel = require("../model/userModel");
 const InmateLocation = require("../model/inmateLocationModel");
 const POSShoppingCart = require('../model/posShoppingCart');
 const { faceRecognitionService, faceRecognitionExcludeUserService } = require("../service/faceRecognitionService");
-const downloadInmatesCSV = async (req, res) => {
+const downloadInmatesCSV1 = async (req, res) => {
   try {
     const inmates = await Inmate.find().lean();
 
@@ -48,6 +48,52 @@ const downloadInmatesCSV = async (req, res) => {
 
   } catch (err) {
     res.status(500).json({ message: 'Failed to export CSV', error: err.message });
+  }
+};
+
+
+const downloadInmatesCSV = async (req, res) => {
+  try {
+    const inmates = await Inmate.find().lean();
+
+    if (!inmates || inmates.length === 0) {
+      return res.status(404).json({ message: 'No inmates found to export' });
+    }
+
+    const fields = [
+      'inmateId',
+      'firstName',
+      'lastName',
+      'cellNumber',
+      'balance',
+      'dateOfBirth',
+      'admissionDate',
+      'crimeType',
+      'status',
+      'location_id',
+      'custodyType'
+    ];
+
+    // Format each date field to dd-mm-yy
+    const formattedInmates = inmates.map(inmate => ({
+      ...inmate,
+      dateOfBirth: formatDateToYYYYMMDD(inmate.dateOfBirth),
+      admissionDate: formatDateToYYYYMMDD(inmate.admissionDate),
+    }));
+
+    const parser = new Parser({ fields });
+    const csv = parser.parse(formattedInmates);
+
+    res.setHeader('Content-Disposition', 'attachment; filename="inmates.csv"');
+    res.setHeader('Content-Type', 'text/csv');
+    res.status(200).send(csv);
+
+  } catch (err) {
+    console.log("<><>err",err)
+    res.status(500).json({
+      message: 'Failed to export CSV',
+      error: err.message
+    });
   }
 };
 
@@ -114,28 +160,33 @@ const createInmate = async (req, res) => {
 };
 
 const getInmates = async (req, res) => {
-  const page = parseInt(req.query.page) || 1;
-  const limit = parseInt(req.query.limit) || 10;
-  const skip = (page - 1) * limit;
-
-  // Sorting parameters
-  const sortField = req.query.sortField || 'createdAt';
-  const sortOrder = req.query.sortOrder === 'asc' ? 1 : -1;
-
   try {
-    const totalInmates = await Inmate.countDocuments();
+    const { page = 1, limit = 10, sortField = 'createdAt', sortOrder, totalRecords } = req.query;
+    const order = sortOrder === 'asc' ? 1 : -1;
 
-    const inmates = await Inmate.find()
+    let inmatesQuery = Inmate.find()
       .populate('location_id', 'locationName')
       .populate('user_id', 'descriptor')
-      .sort({ [sortField]: sortOrder })
-      .skip(skip)
-      .limit(limit);
+      .sort({ [sortField]: order });
+
+    let currentPage = Number(page);
+    let perPage = Number(limit);
+
+    // ✅ If totalRecords=true, return everything without skip/limit
+    if (!totalRecords || totalRecords !== 'true') {
+      const skip = (currentPage - 1) * perPage;
+      inmatesQuery = inmatesQuery.skip(skip).limit(perPage);
+    }
+
+    const [inmates, totalItems] = await Promise.all([
+      inmatesQuery,
+      Inmate.countDocuments()
+    ]);
 
     if (!inmates.length) {
       return res.status(404).json({
         success: false,
-        message: "No data found",
+        message: 'No data found',
         data: []
       });
     }
@@ -143,20 +194,22 @@ const getInmates = async (req, res) => {
     res.json({
       success: true,
       data: inmates,
-      currentPage: page,
-      totalPages: Math.ceil(totalInmates / limit),
-      totalItems: totalInmates,
-      message: "Inmates fetched successfully",
+      // Only include pagination info if we paginated
+      currentPage: totalRecords === 'true' ? null : currentPage,
+      totalPages: totalRecords === 'true' ? 1 : Math.ceil(totalItems / perPage),
+      totalItems,
+      message: 'Inmates fetched successfully'
     });
-
   } catch (error) {
+    console.error('getInmates error:', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error',
-      error: error.message,
+      error: error.message
     });
   }
 };
+
 
 const getInmatesID = async (req, res) => {
   try {
@@ -283,7 +336,7 @@ const searchInmates = async (req, res) => {
       return res.status(400).json({ message: "Search query is required" });
     }
 
-    const regex = new RegExp(query, "i"); // 'i' makes it case-insensitive
+    const regex = new RegExp(query, "i");
 
     const filter = {
       $or: [
@@ -295,8 +348,8 @@ const searchInmates = async (req, res) => {
     };
 
     const results = await InmateSchema.find(filter);
-    const totalMatching = await InmateSchema.countDocuments(filter); // only filtered
-    const totalInmates = await InmateSchema.estimatedDocumentCount(); // all records in collection
+    const totalMatching = await InmateSchema.countDocuments(filter); 
+    const totalInmates = await InmateSchema.estimatedDocumentCount();
 
     res.status(200).json({
       success: true,
