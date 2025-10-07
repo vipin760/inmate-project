@@ -239,7 +239,7 @@ const updateInmate = async (req, res) => {
     const updateBody = req.body;
     const { inmateId, descriptor } = req.body
 
-    const existingInmateID = await InmateSchema.findOne({ inmateId });
+    const existingInmateID = await InmateSchema.findOne({ inmateId, _id: { $ne: req.params.id } });
     if (existingInmateID) {
       return res.status(400).json({ success: false, message: "Inmate ID already exist" })
     }
