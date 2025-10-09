@@ -4,12 +4,9 @@ const { exec } = require("child_process");
 const backupLocationModel = require("../model/backupLocationModel");
 
 async function backupDatabase() {
-  console.log("<><>woekinngngngn")
   try {
     const backupDoc = await backupLocationModel.findOne().lean();
-    console.log("<><>backupDoc",backupDoc)
     let backupDir = backupDoc?.path || path.join(__dirname, "..", "public", "backups");
-console.log("<><>backupDir",backupDir);
 
     backupDir = path.resolve(backupDir);
 

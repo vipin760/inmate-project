@@ -108,10 +108,8 @@ exports.checkTransactionLimit = async (inmateId, amount, type) => {
       .replace(/\s+/g, "_");
     const limitObj = location.custodyLimits?.find(
       (c) => {
-        console.log("<><>c.custodyType.toLowerCase()",c.custodyType.toLowerCase(),"==",normalizedCustody)
         return c.custodyType.toLowerCase() === normalizedCustody
       }    );
-console.log("<><>limitObj",limitObj)
      if (!limitObj) {
       return {
         status: false,
@@ -145,14 +143,11 @@ console.log("<><>limitObj",limitObj)
     };
 
   } catch (error) {
-    console.log("<><>error inmateTranscation",error);
-    
     return { status: false, message: "Internal server error" };
   }
 };
 
 exports.checkProductsLimit = async (inmateId, newProducts = []) => {
-  console.log("<><>newProducts",newProducts)
   try {
     // First day of current month
     const monthStart = new Date();

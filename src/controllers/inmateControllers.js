@@ -89,7 +89,6 @@ const downloadInmatesCSV = async (req, res) => {
     res.status(200).send(csv);
 
   } catch (err) {
-    console.log("<><>err",err)
     res.status(500).json({
       message: 'Failed to export CSV',
       error: err.message

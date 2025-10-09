@@ -765,7 +765,6 @@ exports.inventoryStockHistoryReport1 = async (req, res) => {
         message: 'No inventory stock history found in selected range'
       });
     }
-console.log("<><>inventoryData",inventoryData)
     // Format each record (example fields—adjust to match your schema)
     const formatted = inventoryData.map(item => ({
       itemName: item.itemName,

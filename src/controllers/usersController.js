@@ -24,7 +24,6 @@ const defaultUser = async (req, res) => {
             await newUser.save();
             res.status(200).send({ success: true, message: "admin created successfully" })
         } else {
-            console.log("User(s) already exist. Skipping default user creation.");
             return res.status(200).send({ success: true, message: "user already created" })
         }
     } catch (error) {

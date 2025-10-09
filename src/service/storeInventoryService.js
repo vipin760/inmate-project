@@ -168,8 +168,6 @@ exports.getVendorPurchaseSummary = async (query) => {
     { $skip: (pageNum - 1) * limitNum },
     { $limit: limitNum },
   ];
-
-  console.log("<><>pipeline",pipeline)
   return await StoreItem.aggregate(pipeline);
 };
 

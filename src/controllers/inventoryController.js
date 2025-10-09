@@ -79,7 +79,7 @@ exports.updateInventoryProduct = async (req, res) => {
       const existingStore = await storeItemModel.findOne({ vendorPurchase: id, itemNo });
       if (existingStore) {
         await storeItemModel.findByIdAndUpdate(existingStore._id, {
-          amount, sellingPrice
+          amount, sellingPrice, stock
         });
         await tuckShopModel.updateOne({ itemNo: itemNo }, { $set: { price: sellingPrice } })
       } else {
@@ -118,6 +118,23 @@ exports.updateInventoryProduct = async (req, res) => {
     });
   }
 };
+
+exports.transferIventoryProduct = async(req,res)=>{
+ try{
+  const {itemNo,transferQty} = req.body
+  const tuckshopItemData = await tuckShopModel.findOne({itemNo});
+  if(!itemData) return res.status(404).send({success:false,message:"item could not find"});
+  const storeInventoryItem = await storeItemModel.findOne({itemNo})
+  
+
+ }catch(error){
+  return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message
+    });
+ }
+}
 
 exports.updateInventoryProduct1 = async (req, res) => {
   try {
@@ -294,6 +311,7 @@ exports.transferInventoryToCanteenInventory = async (req, res) => {
     let remaining = transferQty;
     const bulkOps = [];
     for (const doc of storeItems) {
+      console.log("<><>doc",doc)
       if (remaining <= 0) break;
       if (doc.stock <= remaining) {
         bulkOps.push({ updateOne: { filter: { _id: doc._id }, update: { $set: { stock: 0 } } } });
@@ -310,6 +328,9 @@ exports.transferInventoryToCanteenInventory = async (req, res) => {
     const { itemName: sName, category: sCategory, sellingPrice } = storeItems[0];
 
     // Set canteen stock directly to transferQty (not increment)
+   const tuckIncData = await tuckShopModel.findOne({itemNo})
+   const stockUpdate = tuckIncData.stockQuantity + transferQty
+   
     await tuckShopModel.updateOne(
       { itemNo },
       {
@@ -319,7 +340,7 @@ exports.transferInventoryToCanteenInventory = async (req, res) => {
           price: sellingPrice,
           status: "Active",
           description: "",
-          stockQuantity: transferQty, // ← direct set
+          stockQuantity: stockUpdate, // ← direct set
         },
       },
       { upsert: true }
