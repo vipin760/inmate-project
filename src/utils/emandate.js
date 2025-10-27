@@ -1,10 +1,6 @@
 const axios = require("axios");
 
 async function createMandate(customerId, maxAmount, inmateId) {
-    console.log("<><>RAZORPAY_SECRET",process.env.RAZORPAY_KEY_ID);
-    console.log("<><>RAZORPAY_KEY",process.env.RAZORPAY_KEY_ID);
-    
-    
   try {
     const auth = Buffer.from(`${process.env.RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_ID}`).toString("base64");
 

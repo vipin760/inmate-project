@@ -11,7 +11,7 @@ const InmatePaymentMandate = require("../model/InmatePaymentMandate");
 const razorpay = require("../config/razorpay");
 const PaymentLog = require("../model/PaymentLog");
 
-const createPOSCart1 = async (req, res) => {
+const createPOSCart = async (req, res) => {
   try {
     const { inmateId, totalAmount, products } = req.body;
     const userData = await userModel.findById(req.user.id).populate("location_id")
@@ -43,6 +43,11 @@ const createPOSCart1 = async (req, res) => {
 
     // Check inmate existence
     const existingInmate = await Inmate.findOne({ inmateId });
+    const paymentMandate = await InmatePaymentMandate.findOne({ inmateId: existingInmate.inmateId }).sort({ createdAt: -1 });
+    
+    if (!paymentMandate?.mandateId || !paymentMandate.customerId) {
+      return res.status(400).json({ success: false, message: "No active mandate found! Setup auto-pay first." });
+    }
     if (!existingInmate) {
       return res.status(400).json({ success: false, message: "Inmate ID does not exist" });
     }
@@ -82,13 +87,13 @@ const createPOSCart1 = async (req, res) => {
     existingInmate.balance -= totalAmount;
     await existingInmate.save();
 
-    await WalletTransaction.create({
-      inmateId: existingInmate._id,
-      amount: totalAmount,
-      type: 'DEDUCT',
-      referenceId: savedCart._id.toString(),
-      description: `Tuckshop purchase - ${products.length} items`
-    });
+    // await WalletTransaction.create({
+    //   inmateId: existingInmate._id,
+    //   amount: totalAmount,
+    //   type: 'DEDUCT',
+    //   referenceId: savedCart._id.toString(),
+    //   description: `Tuckshop purchase - ${products.length} items`
+    // });
 
     // Audit log
     await logAudit({
@@ -141,13 +146,11 @@ const createPOSCart2 = async (req, res) => {
 
     const mandateId = paymentMandate.mandateId; // Subscription ID used as mandate ID
     const customerId = paymentMandate.customerId;
-    console.log("🔥 USING MANDATE:", mandateId, "CUSTOMER:", customerId);
 
     // 5️⃣ Validate mandate
     let mandateDetails = null;
     try {
       mandateDetails = await razorpay.subscriptions.fetch(mandateId);
-      console.log("<><>mandateDetails", JSON.stringify(mandateDetails, null, 2));
 
       if ( mandateDetails.status !== 'authenticated') {
         return res.status(400).json({ success: false, message: "Mandate is not active or authenticated" });
@@ -182,7 +185,6 @@ const createPOSCart2 = async (req, res) => {
       });
     }
 
-    console.log(`🛒 CART TOTAL: ₹${totalAmount}`);
 
     // 7️⃣ Check limits
     const depositLim = await checkTransactionLimit(inmateId, totalAmount, "spend");
@@ -199,11 +201,9 @@ const createPOSCart2 = async (req, res) => {
       status: "pending"
     });
     const savedCart = await newCart.save();
-    console.log("🛒 CART CREATED:", savedCart._id);
 
     // 🔥 9️⃣ INSTANT MANDATE PAYMENT PROCESSING
     const amountInPaise = Math.round(totalAmount * 100);
-    console.log("💰 AMOUNT:", totalAmount, "→", amountInPaise, "paise");
 
     // Charge using Razorpay subscription charge API
     let paymentResult = null;
@@ -218,10 +218,7 @@ const createPOSCart2 = async (req, res) => {
         }
       };
 
-      console.log("📝 CHARGING SUBSCRIPTION:", JSON.stringify(chargePayload, null, 2));
       paymentResult = await razorpay.subscriptions.charge(mandateId, chargePayload);
-      console.log("<><>paymentResult",paymentResult)
-      console.log("💳 SUBSCRIPTION CHARGED:", paymentResult.id, "Status:", paymentResult.status);
     } catch (chargeError) {
       console.error("❌ SUBSCRIPTION CHARGE FAILED:", chargeError.message || chargeError);
 
@@ -249,7 +246,6 @@ const createPOSCart2 = async (req, res) => {
         };
 
         const paymentLink = await razorpay.paymentLink.create(paymentLinkPayload);
-        console.log("🔗 PAYMENT LINK CREATED (fallback):", paymentLink.id);
 
         paymentResult = {
           id: paymentLink.id,
@@ -261,7 +257,6 @@ const createPOSCart2 = async (req, res) => {
           short_url: paymentLink.short_url || paymentLink.longurl || null
         };
       } catch (linkError) {
-        console.error("❌ PAYMENT LINK FAILED (fallback):", linkError.message || linkError);
         throw new Error("Failed to process mandate payment: " + (linkError.message || 'unknown'));
       }
     }
@@ -282,12 +277,10 @@ const createPOSCart2 = async (req, res) => {
       });
     }
 
-    console.log("✅ PAYMENT SUCCESS:", paymentResult.id, paymentResult.status);
 
     // 11️⃣ DEDUCT STOCK
     for (const item of productDetails) {
       await TuckShop.findByIdAndUpdate(item.productId, { $inc: { stockQuantity: -item.quantity } });
-      console.log(`📦 STOCK DEDUCTED: ${item.itemName} x${item.quantity}`);
     }
 
     // 12️⃣ UPDATE CART STATUS
@@ -296,7 +289,6 @@ const createPOSCart2 = async (req, res) => {
     savedCart.paymentStatus = paymentResult.status;
     savedCart.paymentMethod = paymentResult.method || "mandate";
     await savedCart.save();
-    console.log("✅ CART UPDATED TO PAID:", savedCart._id);
 
     // 13️⃣ CREATE PAYMENT LOG
     await PaymentLog.create({
@@ -314,7 +306,6 @@ const createPOSCart2 = async (req, res) => {
         location: userData.location_id.name || userData.location_id._id.toString()
       }
     });
-    console.log("📝 PAYMENT LOG CREATED");
 
     // 14️⃣ AUDIT LOG
     await logAudit({
@@ -334,10 +325,8 @@ const createPOSCart2 = async (req, res) => {
     });
 
     // 15️⃣ NOTIFICATION
-    console.log("📱 NOTIFICATION: Order delivered to", inmateId);
 
     const timeTaken = Date.now() - startTime;
-    console.log(`⚡ TOTAL PROCESSING TIME: ${timeTaken}ms`);
 
     return res.status(201).json({
       success: true,
@@ -387,7 +376,6 @@ const createPOSCart2 = async (req, res) => {
           if (recentCart) {
             recentCart.status = "failed";
             await recentCart.save();
-            console.log("🔄 ROLLBACK: Cart marked as failed:", recentCart._id);
           }
         }
       } catch (rollbackError) {
@@ -408,386 +396,379 @@ const createPOSCart2 = async (req, res) => {
 // const axios = require('axios');
 // const https = require('https');
 
-const createPOSCart3 = async (req, res) => {
-  const startTime = Date.now();
+// const createPOSCart3 = async (req, res) => {
+//   const startTime = Date.now();
 
-  // Basic auth credentials for Razorpay REST API
-  const base64Credentials = Buffer.from(`${process.env.RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET}`).toString('base64');
+//   // Basic auth credentials for Razorpay REST API
+//   const base64Credentials = Buffer.from(`${process.env.RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET}`).toString('base64');
 
-  try {
-    const { inmateId, products } = req.body;
+//   try {
+//     const { inmateId, products } = req.body;
 
-    // 1️⃣ User & location checks
-    const userData = await userModel.findById(req.user.id).populate("location_id");
-    if (!userData?.location_id) return res.status(404).json({ success: false, message: "User has no location" });
-    if (userData.location_id.purchaseStatus === "denied")
-      return res.status(403).json({ success: false, message: "Application under maintenance" });
+//     // 1️⃣ User & location checks
+//     const userData = await userModel.findById(req.user.id).populate("location_id");
+//     if (!userData?.location_id) return res.status(404).json({ success: false, message: "User has no location" });
+//     if (userData.location_id.purchaseStatus === "denied")
+//       return res.status(403).json({ success: false, message: "Application under maintenance" });
 
-    // 2️⃣ Validate products
-    if (!inmateId || !Array.isArray(products) || products.length === 0)
-      return res.status(400).json({ success: false, message: "Missing required fields" });
+//     // 2️⃣ Validate products
+//     if (!inmateId || !Array.isArray(products) || products.length === 0)
+//       return res.status(400).json({ success: false, message: "Missing required fields" });
 
-    for (const item of products) {
-      if (!item.productId || !item.quantity)
-        return res.status(400).json({ success: false, message: "Each product must have productId and quantity" });
-    }
+//     for (const item of products) {
+//       if (!item.productId || !item.quantity)
+//         return res.status(400).json({ success: false, message: "Each product must have productId and quantity" });
+//     }
 
-    // 3️⃣ Check inmate
-    const inmate = await Inmate.findOne({ inmateId });
-    if (!inmate) return res.status(400).json({ success: false, message: "Inmate ID does not exist" });
+//     // 3️⃣ Check inmate
+//     const inmate = await Inmate.findOne({ inmateId });
+//     if (!inmate) return res.status(400).json({ success: false, message: "Inmate ID does not exist" });
 
-    // 🔥 4️⃣ FIND STORED MANDATE
-    const paymentMandate = await InmatePaymentMandate.findOne({ inmateId: inmate._id }).sort({ createdAt: -1 });
-    if (!paymentMandate?.mandateId || !paymentMandate.customerId) {
-      return res.status(400).json({ success: false, message: "No active mandate found! Setup auto-pay first." });
-    }
+//     // 🔥 4️⃣ FIND STORED MANDATE
+//     const paymentMandate = await InmatePaymentMandate.findOne({ inmateId: inmate._id }).sort({ createdAt: -1 });
+//     if (!paymentMandate?.mandateId || !paymentMandate.customerId) {
+//       return res.status(400).json({ success: false, message: "No active mandate found! Setup auto-pay first." });
+//     }
 
-    const mandateId = paymentMandate.mandateId; // Subscription ID
-    const customerId = paymentMandate.customerId;
-    console.log("🔥 USING MANDATE:", mandateId, "CUSTOMER:", customerId);
+//     const mandateId = paymentMandate.mandateId; // Subscription ID
+//     const customerId = paymentMandate.customerId;
 
-    // 5️⃣ Validate mandate
-    let mandateDetails = null;
-    try {
-      mandateDetails = await razorpay.subscriptions.fetch(mandateId);
-      console.log("<><>mandateDetails", JSON.stringify(mandateDetails, null, 2));
+//     // 5️⃣ Validate mandate
+//     let mandateDetails = null;
+//     try {
+//       mandateDetails = await razorpay.subscriptions.fetch(mandateId);
 
-      if (mandateDetails.status !== 'active' && mandateDetails.status !== 'authenticated') {
-        return res.status(400).json({ success: false, message: "Mandate is not active or authenticated" });
-      }
-      if (mandateDetails.customer_id !== customerId) {
-        return res.status(400).json({ success: false, message: "Mandate does not belong to this customer" });
-      }
-    } catch (err) {
-      console.error("❌ MANDATE VALIDATION FAILED:", err.message);
-      return res.status(500).json({ success: false, message: "Failed to validate mandate" });
-    }
+//       if (mandateDetails.status !== 'active' && mandateDetails.status !== 'authenticated') {
+//         return res.status(400).json({ success: false, message: "Mandate is not active or authenticated" });
+//       }
+//       if (mandateDetails.customer_id !== customerId) {
+//         return res.status(400).json({ success: false, message: "Mandate does not belong to this customer" });
+//       }
+//     } catch (err) {
+//       console.error("❌ MANDATE VALIDATION FAILED:", err.message);
+//       return res.status(500).json({ success: false, message: "Failed to validate mandate" });
+//     }
 
-    // 6️⃣ Check stock & calculate total
-    let totalAmount = 0;
-    const productDetails = [];
-    for (const item of products) {
-      const tuckItem = await TuckShop.findById(item.productId);
-      if (!tuckItem) return res.status(404).json({ success: false, message: `Product ${item.productId} not found` });
-      if (tuckItem.stockQuantity < item.quantity) {
-        return res.status(400).json({
-          success: false,
-          message: `Insufficient stock for "${tuckItem.itemName}". Available: ${tuckItem.stockQuantity}, Requested: ${item.quantity}`
-        });
-      }
-      totalAmount += tuckItem.price * item.quantity;
-      productDetails.push({
-        productId: tuckItem._id,
-        itemName: tuckItem.itemName,
-        quantity: item.quantity,
-        price: tuckItem.price,
-        subtotal: tuckItem.price * item.quantity
-      });
-    }
+//     // 6️⃣ Check stock & calculate total
+//     let totalAmount = 0;
+//     const productDetails = [];
+//     for (const item of products) {
+//       const tuckItem = await TuckShop.findById(item.productId);
+//       if (!tuckItem) return res.status(404).json({ success: false, message: `Product ${item.productId} not found` });
+//       if (tuckItem.stockQuantity < item.quantity) {
+//         return res.status(400).json({
+//           success: false,
+//           message: `Insufficient stock for "${tuckItem.itemName}". Available: ${tuckItem.stockQuantity}, Requested: ${item.quantity}`
+//         });
+//       }
+//       totalAmount += tuckItem.price * item.quantity;
+//       productDetails.push({
+//         productId: tuckItem._id,
+//         itemName: tuckItem.itemName,
+//         quantity: item.quantity,
+//         price: tuckItem.price,
+//         subtotal: tuckItem.price * item.quantity
+//       });
+//     }
 
-    console.log(`🛒 CART TOTAL: ₹${totalAmount}`);
+//     // 7️⃣ Check limits
+//     const depositLim = await checkTransactionLimit(inmateId, totalAmount, "spend");
+//     if (!depositLim.status) return res.status(400).json({ success: false, message: depositLim.message });
 
-    // 7️⃣ Check limits
-    const depositLim = await checkTransactionLimit(inmateId, totalAmount, "spend");
-    if (!depositLim.status) return res.status(400).json({ success: false, message: depositLim.message });
+//     const checkRechargeTransactionLim = await checkProductsLimit(inmateId, products);
+//     if (!checkRechargeTransactionLim.status) return res.status(400).json({ success: false, message: checkRechargeTransactionLim.message });
 
-    const checkRechargeTransactionLim = await checkProductsLimit(inmateId, products);
-    if (!checkRechargeTransactionLim.status) return res.status(400).json({ success: false, message: checkRechargeTransactionLim.message });
+//     // 8️⃣ Create POS cart
+//     const newCart = new POSShoppingCart({
+//       inmateId: inmate._id,
+//       totalAmount,
+//       products: productDetails,
+//       status: "pending"
+//     });
+//     const savedCart = await newCart.save();
+//     console.log("🛒 CART CREATED:", savedCart._id);
 
-    // 8️⃣ Create POS cart
-    const newCart = new POSShoppingCart({
-      inmateId: inmate._id,
-      totalAmount,
-      products: productDetails,
-      status: "pending"
-    });
-    const savedCart = await newCart.save();
-    console.log("🛒 CART CREATED:", savedCart._id);
+//     // 🔥 9️⃣ INSTANT MANDATE PAYMENT PROCESSING
+//     const amountInPaise = Math.round(totalAmount * 100); // e.g., 5000 paise for ₹50
+//     console.log("💰 AMOUNT:", totalAmount, "→", amountInPaise, "paise");
 
-    // 🔥 9️⃣ INSTANT MANDATE PAYMENT PROCESSING
-    const amountInPaise = Math.round(totalAmount * 100); // e.g., 5000 paise for ₹50
-    console.log("💰 AMOUNT:", totalAmount, "→", amountInPaise, "paise");
+//     // STEP 1: CREATE ORDER
+//     const orderOptions = {
+//       amount: amountInPaise,
+//       currency: "INR",
+//       receipt: `tuck_${Date.now()}_${savedCart._id.toString().slice(0, 8)}`,
+//       notes: {
+//         cartId: savedCart._id.toString(),
+//         mandate_id: mandateId,
+//         inmate_id: inmateId,
+//         type: "instant_purchase",
+//         location_id: userData.location_id._id.toString()
+//       }
+//     };
 
-    // STEP 1: CREATE ORDER
-    const orderOptions = {
-      amount: amountInPaise,
-      currency: "INR",
-      receipt: `tuck_${Date.now()}_${savedCart._id.toString().slice(0, 8)}`,
-      notes: {
-        cartId: savedCart._id.toString(),
-        mandate_id: mandateId,
-        inmate_id: inmateId,
-        type: "instant_purchase",
-        location_id: userData.location_id._id.toString()
-      }
-    };
+//     console.log("📝 CREATING ORDER:", JSON.stringify(orderOptions, null, 2));
+//     const order = await razorpay.orders.create(orderOptions);
+//     console.log("⚡ ORDER CREATED:", order.id);
 
-    console.log("📝 CREATING ORDER:", JSON.stringify(orderOptions, null, 2));
-    const order = await razorpay.orders.create(orderOptions);
-    console.log("⚡ ORDER CREATED:", order.id);
+//     // STEP 2: PROCESS MANDATE PAYMENT (using REST API with payments/create)
+//     let paymentResult = null;
+//     try {
+//       const paymentPayload = {
+//         amount: amountInPaise,
+//         currency: "INR",
+//         order_id: order.id,
+//         customer_id: customerId,
+//         token: mandateId, 
+//         recurring: true, 
+//         method: mandateDetails.payment_method || "upi",
+//         description: `Tuckshop purchase for ${inmateId} - ₹${totalAmount}`,
+//         notes: {
+//           cartId: savedCart._id.toString(),
+//           mandate_id: mandateId,
+//           order_id: order.id,
+//           type: "instant_mandate_capture",
+//           inmate_id: inmateId
+//         }
+//       };
 
-    // STEP 2: PROCESS MANDATE PAYMENT (using REST API with payments/create)
-    let paymentResult = null;
-    try {
-      const paymentPayload = {
-        amount: amountInPaise,
-        currency: "INR",
-        order_id: order.id,
-        customer_id: customerId,
-        token: mandateId, 
-        recurring: true, 
-        method: mandateDetails.payment_method || "upi",
-        description: `Tuckshop purchase for ${inmateId} - ₹${totalAmount}`,
-        notes: {
-          cartId: savedCart._id.toString(),
-          mandate_id: mandateId,
-          order_id: order.id,
-          type: "instant_mandate_capture",
-          inmate_id: inmateId
-        }
-      };
+//       console.log("📝 CREATING PAYMENT (REST):", JSON.stringify(paymentPayload, null, 2));
+//       const paymentResponse = await axios.post(
+//         'https://api.razorpay.com/v1/payments/create',
+//         paymentPayload,
+//         {
+//           headers: { Authorization: `Basic ${base64Credentials}`, 'Content-Type': 'application/json' },
+//           timeout: 15000,
+//           httpsAgent: new https.Agent({ keepAlive: false })
+//         }
+//       );
 
-      console.log("📝 CREATING PAYMENT (REST):", JSON.stringify(paymentPayload, null, 2));
-      const paymentResponse = await axios.post(
-        'https://api.razorpay.com/v1/payments/create',
-        paymentPayload,
-        {
-          headers: { Authorization: `Basic ${base64Credentials}`, 'Content-Type': 'application/json' },
-          timeout: 15000,
-          httpsAgent: new https.Agent({ keepAlive: false })
-        }
-      );
+//       console.log(".....................................................................");
+//       console.log("<><>paymentResponse", paymentResponse.data);
+//       console.log(".....................................................................");
 
-      console.log(".....................................................................");
-      console.log("<><>paymentResponse", paymentResponse.data);
-      console.log(".....................................................................");
+//       paymentResult = paymentResponse.data;
+//       console.log("💳 PAYMENT CREATED (REST):", paymentResult.id, "Status:", paymentResult.status);
 
-      paymentResult = paymentResponse.data;
-      console.log("💳 PAYMENT CREATED (REST):", paymentResult.id, "Status:", paymentResult.status);
+//       // Capture the payment if authorized
+//       if (paymentResult.status === 'authorized') {
+//         const captureResponse = await axios.post(
+//           `https://api.razorpay.com/v1/payments/${paymentResult.id}/capture`,
+//           { amount: amountInPaise, currency: "INR" },
+//           {
+//             headers: { Authorization: `Basic ${base64Credentials}`, 'Content-Type': 'application/json' },
+//             timeout: 10000,
+//             httpsAgent: new https.Agent({ keepAlive: false })
+//           }
+//         );
 
-      // Capture the payment if authorized
-      if (paymentResult.status === 'authorized') {
-        const captureResponse = await axios.post(
-          `https://api.razorpay.com/v1/payments/${paymentResult.id}/capture`,
-          { amount: amountInPaise, currency: "INR" },
-          {
-            headers: { Authorization: `Basic ${base64Credentials}`, 'Content-Type': 'application/json' },
-            timeout: 10000,
-            httpsAgent: new https.Agent({ keepAlive: false })
-          }
-        );
+//         paymentResult = captureResponse.data;
+//         console.log("🔒 PAYMENT CAPTURED (REST):", paymentResult.id, "Status:", paymentResult.status);
+//       }
+//     } catch (paymentError) {
+//       console.error("❌ PAYMENT FAILED (REST):", {
+//         message: paymentError.message,
+//         response: paymentError.response?.data || 'No response data',
+//         stack: paymentError.stack
+//       });
 
-        paymentResult = captureResponse.data;
-        console.log("🔒 PAYMENT CAPTURED (REST):", paymentResult.id, "Status:", paymentResult.status);
-      }
-    } catch (paymentError) {
-      console.error("❌ PAYMENT FAILED (REST):", {
-        message: paymentError.message,
-        response: paymentError.response?.data || 'No response data',
-        stack: paymentError.stack
-      });
+//       // Fallback to payment link
+//       try {
+//         const callbackUrl = process.env.BASE_URL ? `${process.env.BASE_URL.replace(/\/$/, '')}/api/payment/callback` : null;
+//         if (!callbackUrl) throw new Error('Missing BASE_URL env for payment link callback_url');
 
-      // Fallback to payment link
-      try {
-        const callbackUrl = process.env.BASE_URL ? `${process.env.BASE_URL.replace(/\/$/, '')}/api/payment/callback` : null;
-        if (!callbackUrl) throw new Error('Missing BASE_URL env for payment link callback_url');
+//         const paymentLinkPayload = {
+//           amount: amountInPaise,
+//           currency: "INR",
+//           customer_id: customerId,
+//           description: `Instant Tuckshop Purchase - ${inmateId}`,
+//           notes: {
+//             cartId: savedCart._id.toString(),
+//             mandate_id: mandateId,
+//             type: "instant_purchase_fallback",
+//             inmate_id: inmateId
+//           },
+//           callback_url: callbackUrl
+//         };
 
-        const paymentLinkPayload = {
-          amount: amountInPaise,
-          currency: "INR",
-          customer_id: customerId,
-          description: `Instant Tuckshop Purchase - ${inmateId}`,
-          notes: {
-            cartId: savedCart._id.toString(),
-            mandate_id: mandateId,
-            type: "instant_purchase_fallback",
-            inmate_id: inmateId
-          },
-          callback_url: callbackUrl
-        };
+//         const paymentLinkResponse = await axios.post(
+//           'https://api.razorpay.com/v1/payment_links',
+//           paymentLinkPayload,
+//           {
+//             headers: { Authorization: `Basic ${base64Credentials}`, 'Content-Type': 'application/json' },
+//             timeout: 15000,
+//             httpsAgent: new https.Agent({ keepAlive: false })
+//           }
+//         );
 
-        const paymentLinkResponse = await axios.post(
-          'https://api.razorpay.com/v1/payment_links',
-          paymentLinkPayload,
-          {
-            headers: { Authorization: `Basic ${base64Credentials}`, 'Content-Type': 'application/json' },
-            timeout: 15000,
-            httpsAgent: new https.Agent({ keepAlive: false })
-          }
-        );
+//         const paymentLink = paymentLinkResponse.data;
+//         console.log("🔗 PAYMENT LINK CREATED (fallback):", paymentLink.id);
 
-        const paymentLink = paymentLinkResponse.data;
-        console.log("🔗 PAYMENT LINK CREATED (fallback):", paymentLink.id);
+//         paymentResult = {
+//           id: paymentLink.id,
+//           status: paymentLink.status || "created",
+//           amount: amountInPaise,
+//           currency: "INR",
+//           method: "payment_link",
+//           notes: paymentLink.notes || {},
+//           short_url: paymentLink.short_url
+//         };
+//       } catch (linkError) {
+//         console.error("❌ PAYMENT LINK FAILED (fallback):", {
+//           message: linkError.message,
+//           response: linkError.response?.data || 'No response data',
+//           stack: linkError.stack
+//         });
+//         throw new Error("Failed to process mandate payment: " + (linkError.message || 'unknown'));
+//       }
+//     }
 
-        paymentResult = {
-          id: paymentLink.id,
-          status: paymentLink.status || "created",
-          amount: amountInPaise,
-          currency: "INR",
-          method: "payment_link",
-          notes: paymentLink.notes || {},
-          short_url: paymentLink.short_url
-        };
-      } catch (linkError) {
-        console.error("❌ PAYMENT LINK FAILED (fallback):", {
-          message: linkError.message,
-          response: linkError.response?.data || 'No response data',
-          stack: linkError.stack
-        });
-        throw new Error("Failed to process mandate payment: " + (linkError.message || 'unknown'));
-      }
-    }
+//     // 10️⃣ VALIDATE PAYMENT STATUS
+//     const successStates = ['captured', 'paid'];
+//     if (!paymentResult || !successStates.includes(paymentResult.status)) {
+//       console.error("❌ PAYMENT NOT COMPLETED:", paymentResult?.status);
 
-    // 10️⃣ VALIDATE PAYMENT STATUS
-    const successStates = ['captured', 'paid'];
-    if (!paymentResult || !successStates.includes(paymentResult.status)) {
-      console.error("❌ PAYMENT NOT COMPLETED:", paymentResult?.status);
+//       savedCart.status = "failed";
+//       await savedCart.save();
 
-      savedCart.status = "failed";
-      await savedCart.save();
+//       return res.status(400).json({
+//         success: false,
+//         message: "Payment processing failed. Please try again.",
+//         paymentStatus: paymentResult?.status || "unknown",
+//         paymentLink: paymentResult?.method === 'payment_link' ? paymentResult.short_url : undefined
+//       });
+//     }
 
-      return res.status(400).json({
-        success: false,
-        message: "Payment processing failed. Please try again.",
-        paymentStatus: paymentResult?.status || "unknown",
-        paymentLink: paymentResult?.method === 'payment_link' ? paymentResult.short_url : undefined
-      });
-    }
+//     console.log("✅ PAYMENT SUCCESS:", paymentResult.id, paymentResult.status);
 
-    console.log("✅ PAYMENT SUCCESS:", paymentResult.id, paymentResult.status);
+//     // 11️⃣ DEDUCT STOCK
+//     for (const item of productDetails) {
+//       await TuckShop.findByIdAndUpdate(item.productId, { $inc: { stockQuantity: -item.quantity } });
+//       console.log(`📦 STOCK DEDUCTED: ${item.itemName} x${item.quantity}`);
+//     }
 
-    // 11️⃣ DEDUCT STOCK
-    for (const item of productDetails) {
-      await TuckShop.findByIdAndUpdate(item.productId, { $inc: { stockQuantity: -item.quantity } });
-      console.log(`📦 STOCK DEDUCTED: ${item.itemName} x${item.quantity}`);
-    }
+//     // 12️⃣ UPDATE CART STATUS
+//     savedCart.status = "paid";
+//     savedCart.paymentId = paymentResult.id;
+//     savedCart.paymentStatus = paymentResult.status;
+//     savedCart.paymentMethod = paymentResult.method || "mandate";
+//     await savedCart.save();
+//     console.log("✅ CART UPDATED TO PAID:", savedCart._id);
 
-    // 12️⃣ UPDATE CART STATUS
-    savedCart.status = "paid";
-    savedCart.paymentId = paymentResult.id;
-    savedCart.paymentStatus = paymentResult.status;
-    savedCart.paymentMethod = paymentResult.method || "mandate";
-    await savedCart.save();
-    console.log("✅ CART UPDATED TO PAID:", savedCart._id);
+//     // 13️⃣ CREATE PAYMENT LOG
+//     await PaymentLog.create({
+//       inmateId: inmate._id,
+//       mandateId,
+//       customerId,
+//       paymentId: paymentResult.id,
+//       amount: totalAmount,
+//       currency: "INR",
+//       status: paymentResult.status,
+//       method: paymentResult.method || "mandate",
+//       notes: {
+//         cartId: savedCart._id.toString(),
+//         type: "tuckshop_purchase",
+//         location: userData.location_id.name || userData.location_id._id.toString()
+//       }
+//     });
+//     console.log("📝 PAYMENT LOG CREATED");
 
-    // 13️⃣ CREATE PAYMENT LOG
-    await PaymentLog.create({
-      inmateId: inmate._id,
-      mandateId,
-      customerId,
-      paymentId: paymentResult.id,
-      amount: totalAmount,
-      currency: "INR",
-      status: paymentResult.status,
-      method: paymentResult.method || "mandate",
-      notes: {
-        cartId: savedCart._id.toString(),
-        type: "tuckshop_purchase",
-        location: userData.location_id.name || userData.location_id._id.toString()
-      }
-    });
-    console.log("📝 PAYMENT LOG CREATED");
+//     // 14️⃣ AUDIT LOG
+//     await logAudit({
+//       userId: req.user.id,
+//       username: req.user.username,
+//       inmateId: inmate._id,
+//       action: "CREATE_AND_PAY",
+//       targetModel: "POSShoppingCart",
+//       targetId: savedCart._id,
+//       description: `⚡ INSTANT tuckshop purchase ₹${totalAmount} for ${inmateId}`,
+//       changes: {
+//         totalAmount,
+//         products: productDetails,
+//         paymentId: paymentResult.id,
+//         method: paymentResult.method || "mandate"
+//       }
+//     });
 
-    // 14️⃣ AUDIT LOG
-    await logAudit({
-      userId: req.user.id,
-      username: req.user.username,
-      inmateId: inmate._id,
-      action: "CREATE_AND_PAY",
-      targetModel: "POSShoppingCart",
-      targetId: savedCart._id,
-      description: `⚡ INSTANT tuckshop purchase ₹${totalAmount} for ${inmateId}`,
-      changes: {
-        totalAmount,
-        products: productDetails,
-        paymentId: paymentResult.id,
-        method: paymentResult.method || "mandate"
-      }
-    });
+//     // 15️⃣ NOTIFICATION
+//     console.log("📱 NOTIFICATION: Order delivered to", inmateId);
 
-    // 15️⃣ NOTIFICATION
-    console.log("📱 NOTIFICATION: Order delivered to", inmateId);
+//     const timeTaken = Date.now() - startTime;
+//     console.log(`⚡ TOTAL PROCESSING TIME: ${timeTaken}ms`);
 
-    const timeTaken = Date.now() - startTime;
-    console.log(`⚡ TOTAL PROCESSING TIME: ${timeTaken}ms`);
+//     return res.status(201).json({
+//       success: true,
+//       data: {
+//         cart: {
+//           id: savedCart._id,
+//           inmateId,
+//           totalAmount,
+//           products: productDetails,
+//           status: savedCart.status,
+//           createdAt: savedCart.createdAt
+//         },
+//         payment: {
+//           id: paymentResult.id,
+//           status: paymentResult.status,
+//           method: paymentResult.method || "mandate",
+//           amount: totalAmount,
+//           payment_link: paymentResult.method === 'payment_link' ? paymentResult.short_url : undefined
+//         },
+//         processingTime: `${timeTaken}ms`
+//       },
+//       message: `⚡ INSTANT SUCCESS! ₹${totalAmount} delivered to ${inmateId} - NO OTP REQUIRED!`,
+//       timestamp: new Date().toISOString()
+//     });
 
-    return res.status(201).json({
-      success: true,
-      data: {
-        cart: {
-          id: savedCart._id,
-          inmateId,
-          totalAmount,
-          products: productDetails,
-          status: savedCart.status,
-          createdAt: savedCart.createdAt
-        },
-        payment: {
-          id: paymentResult.id,
-          status: paymentResult.status,
-          method: paymentResult.method || "mandate",
-          amount: totalAmount,
-          payment_link: paymentResult.method === 'payment_link' ? paymentResult.short_url : undefined
-        },
-        processingTime: `${timeTaken}ms`
-      },
-      message: `⚡ INSTANT SUCCESS! ₹${totalAmount} delivered to ${inmateId} - NO OTP REQUIRED!`,
-      timestamp: new Date().toISOString()
-    });
+//   } catch (error) {
+//     console.error("❌ CRITICAL ERROR in createPOSCart:", {
+//       message: error.message || "No error message provided",
+//       stack: error.stack || "No stack trace provided",
+//       errorDetails: error,
+//       timestamp: new Date().toISOString(),
+//       userId: req.user?.id,
+//       inmateId: req.body?.inmateId
+//     });
 
-  } catch (error) {
-    console.error("❌ CRITICAL ERROR in createPOSCart:", {
-      message: error.message || "No error message provided",
-      stack: error.stack || "No stack trace provided",
-      errorDetails: error,
-      timestamp: new Date().toISOString(),
-      userId: req.user?.id,
-      inmateId: req.body?.inmateId
-    });
+//     // Rollback any partial changes (mark pending cart as failed)
+//     if (req.body?.inmateId) {
+//       try {
+//         const inmate = await Inmate.findOne({ inmateId: req.body.inmateId });
+//         if (inmate) {
+//           const recentCart = await POSShoppingCart.findOne({
+//             inmateId: inmate._id,
+//             status: "pending",
+//             createdAt: { $gte: new Date(Date.now() - 5 * 60 * 1000) }
+//           });
 
-    // Rollback any partial changes (mark pending cart as failed)
-    if (req.body?.inmateId) {
-      try {
-        const inmate = await Inmate.findOne({ inmateId: req.body.inmateId });
-        if (inmate) {
-          const recentCart = await POSShoppingCart.findOne({
-            inmateId: inmate._id,
-            status: "pending",
-            createdAt: { $gte: new Date(Date.now() - 5 * 60 * 1000) }
-          });
+//           if (recentCart) {
+//             recentCart.status = "failed";
+//             await recentCart.save();
+//             console.log("🔄 ROLLBACK: Cart marked as failed:", recentCart._id);
+//           }
+//         }
+//       } catch (rollbackError) {
+//         console.error("❌ ROLLBACK FAILED:", rollbackError.message);
+//       }
+//     }
 
-          if (recentCart) {
-            recentCart.status = "failed";
-            await recentCart.save();
-            console.log("🔄 ROLLBACK: Cart marked as failed:", recentCart._id);
-          }
-        }
-      } catch (rollbackError) {
-        console.error("❌ ROLLBACK FAILED:", rollbackError.message);
-      }
-    }
-
-    const timeTaken = Date.now() - startTime;
-    return res.status(500).json({
-      success: false,
-      message: "Server error during payment processing",
-      error: process.env.NODE_ENV === "development" ? (error.message || "Unknown error") : "Internal server error",
-      processingTime: `${timeTaken}ms`
-    });
-  }
-};
+//     const timeTaken = Date.now() - startTime;
+//     return res.status(500).json({
+//       success: false,
+//       message: "Server error during payment processing",
+//       error: process.env.NODE_ENV === "development" ? (error.message || "Unknown error") : "Internal server error",
+//       processingTime: `${timeTaken}ms`
+//     });
+//   }
+// };
 
 const axios = require('axios');
 const https = require('https');
 
-const createPOSCart = async (req, res) => {
+const createPOSCartLatest = async (req, res) => {
   const startTime = Date.now();
 
   // Basic auth credentials for Razorpay REST API
   const base64Credentials = Buffer.from(`${process.env.RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET}`).toString('base64');
-  console.log("🔑 ENV KEY_ID:", process.env.RAZORPAY_KEY_ID);
-  console.log("🔑 ENV SECRET:", process.env.RAZORPAY_KEY_SECRET);
-  console.log("🔑 AUTH HEADER:", `Basic ${base64Credentials}`);
 
   // Test authentication
   try {
@@ -825,9 +806,7 @@ const createPOSCart = async (req, res) => {
     // 3️⃣ Check inmate
     const inmate = await Inmate.findOne({ inmateId });
     if (!inmate) return res.status(400).json({ success: false, message: "Inmate ID does not exist" });
-
-    // 🔥 4️⃣ FIND STORED MANDATE
-    const paymentMandate = await InmatePaymentMandate.findOne({ inmateId: inmate._id }).sort({ createdAt: -1 });
+    const paymentMandate = await InmatePaymentMandate.findOne({ inmateId: inmate.inmateId }).sort({ createdAt: -1 });
     if (!paymentMandate?.mandateId || !paymentMandate.customerId) {
       return res.status(400).json({ success: false, message: "No active mandate found! Setup auto-pay first." });
     }

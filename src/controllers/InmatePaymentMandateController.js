@@ -1,4 +1,5 @@
 const razorpay = require("../config/razorpay");
+const inmateModel = require("../model/inmateModel");
 const InmatePaymentMandate = require("../model/InmatePaymentMandate");
 const PaymentLog = require("../model/PaymentLog");
 const { createMandate } = require("../utils/emandate");
@@ -27,7 +28,6 @@ const createInmateMandate1 = async (req, res) => {
                 throw err;
             }
         }
-        console.log("<><>customer", customer);
 
 
         // 2️⃣ Create subscription registration mandate (pending)
@@ -37,8 +37,6 @@ const createInmateMandate1 = async (req, res) => {
             customer_id: customer.id,
             total_count: 12
         });
-
-        console.log("<><>mandate", mandate);
 
 
         // 3️⃣ Save in DB as pending
@@ -51,7 +49,6 @@ const createInmateMandate1 = async (req, res) => {
             status: 'pending'
         });
 
-        console.log("<><>saved", saved);
 
 
         // 4️⃣ Return approval link
@@ -86,12 +83,10 @@ const createInmateMandate2 = async (req, res) => {
 
             if (customers.items.length > 0) {
                 customer = customers.items[0];
-                console.log("Customer found:", customer.id);
             } else {
                 customer = await razorpay.customers.create({
                     name, email, contact,
                 });
-                console.log("Customer created:", customer.id);
             }
         } catch (e) {
             throw new Error("Failed to process customer.");
@@ -109,7 +104,6 @@ const createInmateMandate2 = async (req, res) => {
             // ⚡ NO payment/config block = MANDATE WORKS!
         });
 
-        console.log("✅ Mandate Order created:", order.id);
 
         res.status(200).json({
             success: true,
@@ -130,7 +124,6 @@ const createInmateMandate2 = async (req, res) => {
 
 const createInmateMandate3 = async (req, res) => {
     try {
-        console.log('Request Body:', req.body);
         const { inmate_id, name, email, phone, maxAmount } = req.body;
 
         // Validate input fields
@@ -155,10 +148,8 @@ const createInmateMandate3 = async (req, res) => {
         const customers = await razorpay.customers.all({ contact: phone });
         if (customers.items.length > 0) {
             customer = customers.items[0];
-            console.log('Customer found:', customer.id);
         } else {
             customer = await razorpay.customers.create({ name, email, contact: phone });
-            console.log('Customer created:', customer.id);
         }
 
         // 2. Verify Plan Exists
@@ -166,7 +157,6 @@ const createInmateMandate3 = async (req, res) => {
         let plan;
         try {
             plan = await razorpay.plans.fetch(planId);
-            console.log('Raw Plan Response:', plan);
 
             // Access amount and currency from plan.item
             const planDetails = {
@@ -176,7 +166,6 @@ const createInmateMandate3 = async (req, res) => {
                 period: plan.period,
                 interval: plan.interval,
             };
-            console.log('Plan details:', planDetails);
 
             if (!plan || !plan.item) {
                 return res.status(400).json({
@@ -193,7 +182,6 @@ const createInmateMandate3 = async (req, res) => {
             }
 
             // Note: Plan amount (₹100) will be used as refundable token for mandate authentication
-            console.log(`Using plan amount ₹${plan.item.amount / 100} as refundable authentication token`);
         } catch (planError) {
             console.error('Error fetching plan:', planError);
             return res.status(500).json({
@@ -214,8 +202,6 @@ const createInmateMandate3 = async (req, res) => {
                 max_amount: maxAmountNum,
             },
         });
-
-        console.log('Subscription created:', subscription.id);
 
         return res.json({
             success: true,
@@ -244,6 +230,9 @@ const createInmateMandate = async (req, res) => {
             return res.status(400).json({ success: false, message: 'All fields are required' });
         }
 
+        const inmateData = await inmateModel.findOne({inmateId:inmate_id})
+        if(!inmateData) return res.status(400).json({ success: false, message: 'please select valid inmateId' });
+
         // Validate maxAmount
         const maxAmountNum = parseInt(maxAmount);
         if (isNaN(maxAmountNum) || maxAmountNum < 100 || maxAmountNum > 50000) {
@@ -263,7 +252,6 @@ const createInmateMandate = async (req, res) => {
             customer = customers.items[0];
         } else {
             customer = await razorpay.customers.create({ name, email, contact: phone });
-            console.log('Customer created:', customer.id);
         }
 
         // 2. Verify Plan Exists
