@@ -10,111 +10,7 @@ const inmateModel = require("../model/inmateModel");
 const InmatePaymentMandate = require("../model/InmatePaymentMandate");
 const razorpay = require("../config/razorpay");
 const PaymentLog = require("../model/PaymentLog");
-
 const createPOSCart = async (req, res) => {
-  try {
-    const { inmateId, totalAmount, products } = req.body;
-    const userData = await userModel.findById(req.user.id).populate("location_id")
-    location_id = userData.location_id
-    if (!userData.location_id) {
-      return res.status(404).send({ success: false, message: "This user has no location" })
-    }
-    if (userData.location_id.purchaseStatus === "denied") {
-      return res.status(403).send({ success: false, message: "Our application is undergoing maintenance. Please try again in a little while" })
-    }
-    const depositLim = await checkTransactionLimit(inmateId, totalAmount, type = "spend");
-    if (!depositLim.status) {
-      return res.status(400).send({ success: false, message: depositLim.message });
-    }
-    const checkRechargeTransactionLim = await checkProductsLimit(inmateId, products)
-    if (!checkRechargeTransactionLim.status) {
-      return res.status(400).send({ success: false, message: checkRechargeTransactionLim.message });
-    }
-
-    if (!inmateId || totalAmount === undefined || !Array.isArray(products) || products.length === 0) {
-      return res.status(400).json({ message: "Missing required fields" });
-    }
-
-    for (const item of products) {
-      if (!item.productId || !item.quantity) {
-        return res.status(400).json({ message: "Each product must have productId and quantity" });
-      }
-    }
-
-    // Check inmate existence
-    const existingInmate = await Inmate.findOne({ inmateId });
-    const paymentMandate = await InmatePaymentMandate.findOne({ inmateId: existingInmate.inmateId }).sort({ createdAt: -1 });
-    
-    if (!paymentMandate?.mandateId || !paymentMandate.customerId) {
-      return res.status(400).json({ success: false, message: "No active mandate found! Setup auto-pay first." });
-    }
-    if (!existingInmate) {
-      return res.status(400).json({ success: false, message: "Inmate ID does not exist" });
-    }
-
-    // Check sufficient balance
-    if (existingInmate.balance < totalAmount) {
-      return res.status(400).json({ success: false, message: "Insufficient balance" });
-    }
-
-    // Check stock availability
-    for (const item of products) {
-      const tuckItem = await TuckShop.findById(item.productId);
-      if (!tuckItem) {
-        return res.status(404).json({ message: `Product with ID ${item.productId} not found` });
-      }
-
-      if (tuckItem.stockQuantity < item.quantity) {
-        return res.status(400).json({
-          success: false,
-          message: `Insufficient stock for item "${tuckItem.itemName}". Available: ${tuckItem.stockQuantity}, Requested: ${item.quantity}`
-        });
-      }
-    }
-
-    // Deduct stock from TuckShop
-    for (const item of products) {
-      await TuckShop.findByIdAndUpdate(item.productId, {
-        $inc: { stockQuantity: -item.quantity }
-      });
-    }
-
-    // Create POS cart
-    const newCart = new POSShoppingCart({ inmateId, totalAmount, products });
-    const savedCart = await newCart.save();
-
-    // Deduct balance
-    existingInmate.balance -= totalAmount;
-    await existingInmate.save();
-
-    // await WalletTransaction.create({
-    //   inmateId: existingInmate._id,
-    //   amount: totalAmount,
-    //   type: 'DEDUCT',
-    //   referenceId: savedCart._id.toString(),
-    //   description: `Tuckshop purchase - ${products.length} items`
-    // });
-
-    // Audit log
-    await logAudit({
-      userId: req.user.id,
-      username: req.user.username,
-      inmateId: inmateId,
-      action: 'CREATE',
-      targetModel: 'POSShoppingCart',
-      targetId: savedCart._id,
-      description: `Created POS cart for inmate ${inmateId}`,
-      changes: { totalAmount, products, inmateId, custodyType: existingInmate.custodyType }
-    });
-
-    res.status(201).json({ success: true, data: savedCart, message: "Cart created successfully" });
-
-  } catch (error) {
-    res.status(500).json({ success: false, message: "Internal server error", error: error.message });
-  }
-};
-
-const createPOSCart2 = async (req, res) => {
   const startTime = Date.now();
   try {
     const { inmateId, products } = req.body;
@@ -390,6 +286,109 @@ const createPOSCart2 = async (req, res) => {
       error: process.env.NODE_ENV === "development" ? (error.message || "Unknown error") : "Internal server error",
       processingTime: `${timeTaken}ms`
     });
+  }
+};
+
+const createPOSCart2 = async (req, res) => {
+  try {
+    const { inmateId, totalAmount, products } = req.body;
+    const userData = await userModel.findById(req.user.id).populate("location_id")
+    location_id = userData.location_id
+    if (!userData.location_id) {
+      return res.status(404).send({ success: false, message: "This user has no location" })
+    }
+    if (userData.location_id.purchaseStatus === "denied") {
+      return res.status(403).send({ success: false, message: "Our application is undergoing maintenance. Please try again in a little while" })
+    }
+    const depositLim = await checkTransactionLimit(inmateId, totalAmount, type = "spend");
+    if (!depositLim.status) {
+      return res.status(400).send({ success: false, message: depositLim.message });
+    }
+    const checkRechargeTransactionLim = await checkProductsLimit(inmateId, products)
+    if (!checkRechargeTransactionLim.status) {
+      return res.status(400).send({ success: false, message: checkRechargeTransactionLim.message });
+    }
+
+    if (!inmateId || totalAmount === undefined || !Array.isArray(products) || products.length === 0) {
+      return res.status(400).json({ message: "Missing required fields" });
+    }
+
+    for (const item of products) {
+      if (!item.productId || !item.quantity) {
+        return res.status(400).json({ message: "Each product must have productId and quantity" });
+      }
+    }
+
+    // Check inmate existence
+    const existingInmate = await Inmate.findOne({ inmateId });
+    const paymentMandate = await InmatePaymentMandate.findOne({ inmateId: existingInmate.inmateId }).sort({ createdAt: -1 });
+    
+    if (!paymentMandate?.mandateId || !paymentMandate.customerId) {
+      return res.status(400).json({ success: false, message: "No active mandate found! Setup auto-pay first." });
+    }
+    if (!existingInmate) {
+      return res.status(400).json({ success: false, message: "Inmate ID does not exist" });
+    }
+
+    // Check sufficient balance
+    if (existingInmate.balance < totalAmount) {
+      return res.status(400).json({ success: false, message: "Insufficient balance" });
+    }
+
+    // Check stock availability
+    for (const item of products) {
+      const tuckItem = await TuckShop.findById(item.productId);
+      if (!tuckItem) {
+        return res.status(404).json({ message: `Product with ID ${item.productId} not found` });
+      }
+
+      if (tuckItem.stockQuantity < item.quantity) {
+        return res.status(400).json({
+          success: false,
+          message: `Insufficient stock for item "${tuckItem.itemName}". Available: ${tuckItem.stockQuantity}, Requested: ${item.quantity}`
+        });
+      }
+    }
+
+    // Deduct stock from TuckShop
+    for (const item of products) {
+      await TuckShop.findByIdAndUpdate(item.productId, {
+        $inc: { stockQuantity: -item.quantity }
+      });
+    }
+
+    // Create POS cart
+    const newCart = new POSShoppingCart({ inmateId, totalAmount, products });
+    const savedCart = await newCart.save();
+
+    // Deduct balance
+    existingInmate.balance -= totalAmount;
+    await existingInmate.save();
+
+    // await WalletTransaction.create({
+    //   inmateId: existingInmate._id,
+    //   amount: totalAmount,
+    //   type: 'DEDUCT',
+    //   referenceId: savedCart._id.toString(),
+    //   description: `Tuckshop purchase - ${products.length} items`
+    // });
+
+    // Audit log
+    await logAudit({
+      userId: req.user.id,
+      username: req.user.username,
+      inmateId: inmateId,
+      action: 'CREATE',
+      targetModel: 'POSShoppingCart',
+      targetId: savedCart._id,
+      description: `Created POS cart for inmate ${inmateId}`,
+      changes: { totalAmount, products, inmateId, custodyType: existingInmate.custodyType }
+    });
+
+    res.status(201).json({ success: true, data: savedCart, message: "Cart created successfully" });
+
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Internal server error", error: error.message });
   }
 };
 
