@@ -4,6 +4,9 @@ const authenticateToken = require('../middleware/authToken');
 const { defaultUser } = require('../controllers/usersController');
 const router = express.Router();
 
+router.get("/",(req,res)=>{
+    return res.status(200).send({success:true,message:"server running successfully"});
+})
 router.post("/login",login);
 router.post("/logout",authenticateToken,logout);
 router.get("/default",defaultUser)

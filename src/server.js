@@ -3,6 +3,7 @@ const app = express();
 const path = require('path');
 require('dotenv').config()
 const cors = require('cors');
+const hostname = '0.0.0.0';
 const { dbConnect } = require('./config/db');
 const { scheduleBackup, rescheduleBackupOnUpdate } = require('./config/cronBackup');
 
@@ -68,7 +69,7 @@ app.use("/mandate",InmatePaymentMandateRoutes)
 app.use("/payment",inmatePaymentRoutes)
 
 
-app.listen(process.env.PORT, () => {
+app.listen(process.env.PORT,hostname, () => {
     console.log(`server running successfully on ${process.env.PORT}`)
     console.log('Running in', process.env.NODE_ENV, 'mode');
 })
