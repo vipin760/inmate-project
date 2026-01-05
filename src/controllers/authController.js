@@ -7,6 +7,8 @@ const tokenBlacklist = require("../utils/blackList");
 
 exports.login = async (req, res) => {
     try {
+        console.log("req.body",req.body);
+        
         const { username, password,descriptor } = req.body;
 
         if(descriptor){
@@ -67,13 +69,15 @@ exports.login = async (req, res) => {
         if (!username || !password) {
             return res.status(400).json({ message: "Username and password required" });
         }
-
-        const user = await UserSchema.findOne({ username })
+        const cleanUserName = username.trim()
+        const user = await UserSchema.findOne({username:cleanUserName})
         if (!user) {
             return res.status(400).json({ message: "Invalid credentials" });
         }
         
         const isValidPassword = await bcrypt.compare(password, user.password);
+        console.log("<><>isValidPassword",isValidPassword,user.password);
+        
         if (!isValidPassword) {
             return res.status(400).json({ message: "Invalid credentials" });
         }
@@ -103,6 +107,7 @@ exports.login = async (req, res) => {
             }
         });
     } catch (error) {
+        console.log("<><>error",error)
         return res.status(500).json({ message: "Internal server error", error: error.message });
     }
 }
