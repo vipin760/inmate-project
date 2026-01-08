@@ -1,5 +1,7 @@
+const { default: mongoose } = require("mongoose");
 const InmateLocation = require("../model/inmateLocationModel");
 const UserSchema = require("../model/userModel")
+const axios = require("axios")
 
 // exports.AddLocation = async (req, res) => {
 //     try {
@@ -41,8 +43,11 @@ const UserSchema = require("../model/userModel")
 // }
 
 exports.AddLocation = async (req, res) => {
+  const session = await mongoose.startSession()
+  session.startTransaction()
+  let globalLocationId = null
     try {
-        const { locationName, custodyLimits } = req.body;
+        const { name,locationName, custodyLimits,baseUrl } = req.body;
         if (!locationName) {
             return res.status(400).json({ success: false, message: "Location name is required." });
           }
@@ -50,7 +55,7 @@ exports.AddLocation = async (req, res) => {
             return res.status(400).json({ success: false, message: "At least one custody limit is required." });
           }
       
-          const checkLocationName = locationName.trim().toLowerCase();
+          const checkLocationName = locationName
           const existing = await InmateLocation.findOne({ locationName: checkLocationName });
           if (existing) {
             return res.status(409).json({ success: false, message: "Location already exists." });
@@ -63,19 +68,27 @@ exports.AddLocation = async (req, res) => {
             }
           }
 
+          const payload = { name,baseUrl:baseUrl,location:locationName}
+          const globalLocationRes = await axios.post(`${process.env.GLOBAL_URL}/api/location`,payload);
+           globalLocationId = globalLocationRes.data._id;
           const location = new InmateLocation({
             locationName: checkLocationName,
-            custodyLimits,
             createdBy: req.user.id,
-            updatedBy: req.user.id
+            updatedBy: req.user.id,
+            name:name,
+            baseUrl:baseUrl,
+            global_location_id:globalLocationId,
+            custodyLimits:custodyLimits
           });
 
           const result = await location.save();
 
           const adminAccess = await UserSchema.findById(req.user.id);
           if (!adminAccess.location_id) {
-            await UserSchema.findByIdAndUpdate(req.user.id, { location_id: result._id });
+            await UserSchema.findByIdAndUpdate(req.user.id, { location_id: result._id },{session});
           }
+          await session.commitTransaction()
+          session.endSession()
 
           return res.status(201).json({
             success: true,
@@ -83,6 +96,20 @@ exports.AddLocation = async (req, res) => {
             message: "Location with custody limits created successfully."
           });
     } catch (error) {
+      console.log("<><>error",error)
+      session.endSession()
+      if(globalLocationId){
+        try {
+        await axios.delete(
+          `${process.env.GLOBAL_URL}/api/location/${globalLocationId}`
+        );
+      } catch (rollbackErr) {
+        console.error("GLOBAL ROLLBACK FAILED:", rollbackErr.message);
+      }
+      }
+      if(error.response && error.response.data && !error.response.data.status){
+        return res.status(500).send({status:false,message:error.response.data.message || "internal server down"})
+      }
         res.status(500).send({ success: false, message: "internal server down",error:error.message })
     }
 }
@@ -137,7 +164,7 @@ exports.AddLocation = async (req, res) => {
 exports.updateLocation = async (req, res) => {
     try {
         const { id } = req.params;
-    const { locationName, custodyLimits } = req.body;
+    const { locationName, custodyLimits,name ,baseUrl} = req.body;
 
     // --- 1. Validate request ---
     if (!locationName && !custodyLimits) {
@@ -149,6 +176,7 @@ exports.updateLocation = async (req, res) => {
 
     // --- 2. Check existence ---
     const existingLocation = await InmateLocation.findById(id);
+    
     if (!existingLocation) {
       return res.status(404).json({
         success: false,
@@ -158,7 +186,7 @@ exports.updateLocation = async (req, res) => {
 
     // --- 3. Prepare update data ---
     const updateData = { updatedBy: req.user.id };
-    if (locationName) updateData.locationName = locationName.trim().toLowerCase();
+    if (locationName) updateData.locationName = locationName
 
     if (custodyLimits) {
       if (!Array.isArray(custodyLimits) || custodyLimits.length === 0) {
@@ -181,12 +209,26 @@ exports.updateLocation = async (req, res) => {
       // Replace entire custodyLimits array
       updateData.custodyLimits = custodyLimits;
     }
+    if(baseUrl){
+      updateData.baseUrl = baseUrl
+    }
+
+    if(name){
+      updateData.name= name
+    }
 
     // --- 4. Update document ---
     const updatedLocation = await InmateLocation.findByIdAndUpdate(id, updateData, {
       new: true,
       runValidators: true
     });
+
+     const payload = {
+      name:name,
+      baseUrl:baseUrl,
+      location:locationName
+    }
+    const globalLocationUpdateRes = await axios.put(`${process.env.GLOBAL_URL}/api/location/${existingLocation.global_location_id}`,payload);
 
     return res.status(200).json({
       success: true,

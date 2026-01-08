@@ -4,7 +4,7 @@ const financialSchema = new mongoose.Schema({
     inmateId: { type: String, required: true },
     custodyType: {type: String, required: true},
     transaction: { type: String },
-    workAssignId: { type: mongoose.Schema.Types.ObjectId,ref:'Department', default: ""},
+    workAssignId: { type: mongoose.Schema.Types.ObjectId,ref:'Department', default: null},
     hoursWorked: { type: Number,  default: 0},
     wageAmount: { type: Number, default: 0},
     depositName: { type: String },
