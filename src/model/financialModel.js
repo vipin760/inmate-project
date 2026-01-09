@@ -9,6 +9,7 @@ const financialSchema = new mongoose.Schema({
     wageAmount: { type: Number, default: 0},
     depositName: { type: String },
     relationShipId: { type: String},
+    remarks:{type:String},
     depositAmount: { type: Number, default: 0 },
     depositType:{ type:String},
     type: { type: String, required: true },

@@ -121,7 +121,7 @@ const downloadWagesCSV = async (req, res) => {
 const createFinancial = async (req, res) => {
   try {
     const { inmateId, workAssignId, hoursWorked, wageAmount, transaction,
-      depositType, status, relationShipId, type, depositAmount } = req.body;
+      depositType, status, relationShipId, type, depositAmount,remarks } = req.body;
      const depositLim = await checkTransactionLimit(inmateId,type==="wages"?wageAmount:depositAmount,type);
      
      if(!depositLim.status){
@@ -177,7 +177,9 @@ const createFinancial = async (req, res) => {
       type,
       relationShipId,
       depositAmount,
-      depositType
+      depositName: "Wallet Topup",
+      depositType:"MANUAL_CREDIT",
+      remarks
     });
  
     const savedFinancial = await financial.save();
