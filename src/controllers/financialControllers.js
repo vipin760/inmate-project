@@ -127,6 +127,7 @@ const createFinancial = async (req, res) => {
       const validFiles = await InmateFile.countDocuments({
         _id: { $in: fileIds }
       });
+console.log("<><>",validFiles,fileIds.length);
 
       if (validFiles !== fileIds.length) {
         return res.status(400).json({
