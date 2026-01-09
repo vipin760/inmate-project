@@ -6,12 +6,13 @@ const { Parser } = require('json2csv');
 const { checkTransactionLimit } = require("../utils/inmateTransactionLimiter");
 const inmateModel = require("../model/inmateModel");
 const departmentModel = require("../model/departmentModel");
+const InmateFile = require("../model/InmateFile");
 
 const downloadWagesCSV = async (req, res) => {
   try {
-      const inmateData = await inmateModel.find()
+    const inmateData = await inmateModel.find()
     const departmentsData = await departmentModel.find()
-    if(!departmentsData.length){
+    if (!departmentsData.length) {
       return res.status(404).json({ message: 'No departments found. Please create at least one department.' });
     }
     if (!inmateData || inmateData.length === 0) {
@@ -22,8 +23,8 @@ const downloadWagesCSV = async (req, res) => {
       custodyType: inmate.custodyType,
       wageAmount: 0, hoursWorked: 0,
       transaction: "WEEKLY",
-      workAssignId:departmentsData[0].name,
-      type:"wages"
+      workAssignId: departmentsData[0].name,
+      type: "wages"
     }))
 
     const fields = [
@@ -121,15 +122,27 @@ const downloadWagesCSV = async (req, res) => {
 const createFinancial = async (req, res) => {
   try {
     const { inmateId, workAssignId, hoursWorked, wageAmount, transaction,
-      depositType, status, relationShipId, type, depositAmount,remarks } = req.body;
-     const depositLim = await checkTransactionLimit(inmateId,type==="wages"?wageAmount:depositAmount,type);
-     
-     if(!depositLim.status){
-      return res.status(400).send({success:false,message:depositLim.message});
-     }
- 
+      depositType, status, relationShipId, type, depositAmount, remarks, fileIds = [] } = req.body;
+    if (fileIds.length > 0) {
+      const validFiles = await InmateFile.countDocuments({
+        _id: { $in: fileIds }
+      });
+
+      if (validFiles !== fileIds.length) {
+        return res.status(400).json({
+          success: false,
+          message: "One or more attached files are invalid"
+        });
+      }
+    }
+    const depositLim = await checkTransactionLimit(inmateId, type === "wages" ? wageAmount : depositAmount, type);
+
+    if (!depositLim.status) {
+      return res.status(400).send({ success: false, message: depositLim.message });
+    }
+
     if (type == 'wages') {
- 
+
       if (!inmateId || !workAssignId || !hoursWorked || !wageAmount || !type || !transaction) {
         return res.status(400).json({ message: "Missing required fields" });
       }
@@ -141,31 +154,31 @@ const createFinancial = async (req, res) => {
       if (!inmateId || !depositType || !type || !depositAmount || !relationShipId) {
         return res.status(400).json({ message: "Missing required fields" });
       }
-    }else {
+    } else {
       return res.status(400).json({ message: "Type is missing or incorrect" });
     }
- 
+
     const inmate = await InmateSchema.findOne({ inmateId });
     if (!inmate) {
       return res.status(404).json({ message: "Inmate not found" });
     }
- 
+
     let amountToAdd = 0;
     if (type === 'wages') {
       amountToAdd = wageAmount || 0;
     } else if (type === 'deposit') {
       amountToAdd = depositAmount || 0;
-    }else if(type === 'withdrawal'){
+    } else if (type === 'withdrawal') {
       amountToAdd = depositAmount || 0;
     }
- 
-    if(type === 'withdrawal'){
+
+    if (type === 'withdrawal') {
       inmate.balance -= amountToAdd
-    }else{
-          inmate.balance += amountToAdd;
+    } else {
+      inmate.balance += amountToAdd;
     }
     await inmate.save();
- 
+
     const financial = new FinancialSchema({
       inmateId,
       custodyType: inmate.custodyType,
@@ -178,10 +191,11 @@ const createFinancial = async (req, res) => {
       relationShipId,
       depositAmount,
       depositName: "Wallet Topup",
-      depositType:"MANUAL_CREDIT",
-      remarks
+      depositType: "MANUAL_CREDIT",
+      remarks,
+      fileIds
     });
- 
+
     const savedFinancial = await financial.save();
     await logAudit({
       userId: req.user.id,
@@ -190,9 +204,9 @@ const createFinancial = async (req, res) => {
       targetModel: 'Financial',
       targetId: savedFinancial._id,
       description: `Created ${type} record for inmate ${inmateId}`,
-      changes: {...req.body,custodyType: inmate.custodyType}
+      changes: { ...req.body, custodyType: inmate.custodyType }
     });
- 
+
     res.status(201).json({ success: true, data: savedFinancial, message: "Financial " + type + " successfully created" });
   } catch (error) {
     res.status(500).json({ success: false, message: "Internal server error", error: error.message });

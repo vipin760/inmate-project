@@ -238,6 +238,10 @@ const getTransactionsByRange = async (req, res) => {
 
       Financial.find({ createdAt: { $gte: startDate } })
         .populate("workAssignId")
+        .populate({
+          path: "fileIds",
+          select: "fileUrl fileType remarks createdAt"
+        })
         .lean()
     ]);
 

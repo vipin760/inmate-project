@@ -98,9 +98,7 @@ const downloadInmatesCSV = async (req, res) => {
 
 const createInmate = async (req, res) => {
   try {
-    const { inmateId, firstName, lastName, cellNumber, dateOfBirth, admissionDate, status, crimeType, custodyType, locationId, descriptor ,phonenumber} = req.body;
-    console.log("<><>req.body",req.body);
-    
+    const { inmateId, firstName, lastName, cellNumber, dateOfBirth, admissionDate, status, crimeType, custodyType, locationId, descriptor ,phonenumber} = req.body;    
     if (!locationId) {
       return res.status(400).json({ message: "location is required" });
     }
@@ -157,7 +155,6 @@ const createInmate = async (req, res) => {
     });
     res.status(201).json({ success: true, data: savedInmate, message: "Inmate successfully created" });
   } catch (error) {
-    console.log("<><>error",error)
     res.status(500).json({ success: false, message: "Internal server error", error: error.message });
   }
 };
