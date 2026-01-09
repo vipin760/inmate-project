@@ -49,6 +49,7 @@ const morgan = require("morgan");
 
 app.use(cors());
 app.use(morgan(":method :url :status :response-time ms"));
+app.use('/uploads', express.static(path.join(__dirname,'..', 'uploads')));
 app.use("/user", authRoutes);
 app.use("/inmate", authenticateToken, inmateRoutes);
 app.use("/financial", authenticateToken, financialRoutes);
