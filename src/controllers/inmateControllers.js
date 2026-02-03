@@ -98,7 +98,7 @@ const downloadInmatesCSV = async (req, res) => {
 
 const createInmate = async (req, res) => {
   try {
-    const { inmateId, firstName, lastName, cellNumber, dateOfBirth, admissionDate, status, crimeType, custodyType, locationId, descriptor } = req.body;
+    const { inmateId, firstName, lastName, cellNumber, dateOfBirth, admissionDate, status, crimeType, custodyType, locationId, descriptor ,phonenumber} = req.body;    
     if (!locationId) {
       return res.status(400).json({ message: "location is required" });
     }
@@ -108,7 +108,7 @@ const createInmate = async (req, res) => {
         return res.status(400).send({ success: false, message: `A face record already exists for user ${checkFaceMatch.username}` })
       }
     }
-    if (!inmateId || !firstName || !lastName || !cellNumber || !dateOfBirth || !admissionDate || status === undefined || !crimeType) {
+    if (!inmateId || !firstName || !lastName || status === undefined || !phonenumber) {
       return res.status(400).json({ message: "Missing required fields" });
     }
     const existingInmateID = await InmateSchema.findOne({ inmateId });
@@ -128,6 +128,7 @@ const createInmate = async (req, res) => {
       admissionDate,
       status,
       crimeType,
+      phonenumber,
       location_id: locationId
     });
 

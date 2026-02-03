@@ -32,6 +32,7 @@ const inventoryRoutes = require('./routes/inventoryRoutes')
 const backupRoutes = require('./routes/backupRoutes')
 const InmatePaymentMandateRoutes = require("./routes/InmatePaymentMandateRoutes")
 const inmatePaymentRoutes = require("./routes/inmatePaymentRoutes")
+const inmateFileUploadRoutes = require("./routes/inmateFileRoute")
 const morgan = require("morgan");
 
 // const allowedOrigins = ["http://localhost:5173"]
@@ -48,6 +49,7 @@ const morgan = require("morgan");
 
 app.use(cors());
 app.use(morgan(":method :url :status :response-time ms"));
+app.use('/uploads', express.static(path.join(__dirname,'..', 'uploads')));
 app.use("/user", authRoutes);
 app.use("/inmate", authenticateToken, inmateRoutes);
 app.use("/financial", authenticateToken, financialRoutes);
@@ -67,6 +69,7 @@ app.use('/inventory',authenticateToken,inventoryRoutes)
 app.use("/backup",authenticateToken,backupRoutes)
 app.use("/mandate",InmatePaymentMandateRoutes)
 app.use("/payment",inmatePaymentRoutes)
+app.use("/file",inmateFileUploadRoutes)
 
 
 app.listen(process.env.PORT,hostname, () => {

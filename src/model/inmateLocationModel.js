@@ -28,7 +28,13 @@ const inmateLocationSchema = new mongoose.Schema(
             ref: 'User',
             required: true,
         },
-        custodyLimits:[custodyLimitSchema]
+        global_location_id: {
+            type: String,
+            required: true
+        },
+        baseUrl: { type: String },
+        name:{type:String},
+        custodyLimits: [custodyLimitSchema]
     },
     {
         timestamps: true,
