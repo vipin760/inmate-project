@@ -294,6 +294,8 @@ const updateInmate = async (req, res) => {
     });
     res.status(200).json({ success: true, data: updatedInmate, message: "Inmate update successfully" })
   } catch (error) {
+    console.log("<><>error",error);
+    
     res.status(500).json({ success: false, message: "Internal server error", error: error.message });
   }
 }

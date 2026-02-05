@@ -60,7 +60,7 @@ const bulkUpsertInmates = async (req, res) => {
       });
     }
 
-    /* ---------- Pre-fetch existing inmates & phones ---------- */
+    /* ---------- Pre-fetch existing inmateIds & phones ---------- */
     const inmateIds = rows.map(r => r.inmateId).filter(Boolean);
     const phones = rows.map(r => r.phonenumber).filter(Boolean);
 
@@ -83,7 +83,7 @@ const bulkUpsertInmates = async (req, res) => {
       existingInmates.map(i => i.phonenumber)
     );
 
-    const bulkInserts = [];
+    const inmateInsertOps = [];
     const usersToCreate = [];
     const results = {
       created: [],
@@ -131,12 +131,12 @@ const bulkUpsertInmates = async (req, res) => {
         return;
       }
 
-      /* ---- Phone format validation ---- */
+      /* ---- Phone format ---- */
       if (!/^[6-9]\d{9}$/.test(phonenumber)) {
         results.failed.push({
           row: index + 2,
           inmateId,
-          reason: "Invalid phone number format",
+          reason: "Invalid phone number",
           phoneNumber: phonenumber
         });
         return;
@@ -182,39 +182,43 @@ const bulkUpsertInmates = async (req, res) => {
         return;
       }
 
-      /* ---- Insert only ---- */
-      const payload = {
-        inmateId,
-        firstName,
-        lastName,
-        phonenumber,
-        status,
-        balance: Number(balance),
-        cellNumber,
-        crimeType,
-        custodyType,
-        dateOfBirth: dob,
-        admissionDate: adm,
-        location_id: locationId
-      };
+      /* ---- Prepare inmate insert ---- */
+      inmateInsertOps.push({
+        insertOne: {
+          document: {
+            inmateId,
+            firstName,
+            lastName,
+            phonenumber,
+            status,
+            balance: Number(balance),
+            cellNumber,
+            crimeType,
+            custodyType,
+            dateOfBirth: dob,
+            admissionDate: adm,
+            location_id: locationId
+          }
+        }
+      });
 
-      bulkInserts.push({ insertOne: { document: payload } });
       usersToCreate.push(inmateId);
       results.created.push(inmateId);
 
       // prevent duplicates within same file
-      existingPhoneSet.add(phonenumber);
       existingInmateIdSet.add(inmateId);
+      existingPhoneSet.add(phonenumber);
     });
 
     /* ---------- Insert inmates ---------- */
-    if (bulkInserts.length) {
-      await Inmate.bulkWrite(bulkInserts, { session });
+    if (inmateInsertOps.length) {
+      await Inmate.bulkWrite(inmateInsertOps, { session });
     }
 
     /* ---------- Create users ---------- */
+    let createdUsers = [];
     if (usersToCreate.length) {
-      const users = await Promise.all(
+      const usersPayload = await Promise.all(
         usersToCreate.map(async id => ({
           username: id,
           fullname: id,
@@ -225,7 +229,19 @@ const bulkUpsertInmates = async (req, res) => {
         }))
       );
 
-      await userModel.insertMany(users, { session });
+      createdUsers = await userModel.insertMany(usersPayload, { session });
+    }
+
+    /* ---------- Link user_id back to inmates ---------- */
+    if (createdUsers.length) {
+      const linkOps = createdUsers.map(u => ({
+        updateOne: {
+          filter: { inmateId: u.inmateId },
+          update: { $set: { user_id: u._id } }
+        }
+      }));
+
+      await Inmate.bulkWrite(linkOps, { session });
     }
 
     /* ---------- Unlock location ---------- */
