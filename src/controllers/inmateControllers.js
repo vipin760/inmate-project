@@ -69,6 +69,7 @@ const downloadInmatesCSV = async (req, res) => {
       'dateOfBirth',
       'admissionDate',
       'crimeType',
+      'phonenumber',
       'status',
       'location_id',
       'custodyType'
