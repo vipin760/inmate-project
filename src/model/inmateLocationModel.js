@@ -13,11 +13,35 @@ const custodyLimitSchema = new mongoose.Schema({
 
 const inmateLocationSchema = new mongoose.Schema(
     {
+        singleton: {
+            type: Boolean,
+            default: true,
+            unique: true,
+            immutable: true
+        },
         locationName: {
             type: String,
             required: true,
             trim: true,
+            index: true
         },
+        name: { type: String, required: true },
+        globalLocationId: {
+            type: mongoose.Schema.Types.ObjectId,
+            index: true
+        },
+        baseUrl: { type: String },
+        custodyLimits: {
+            type: [custodyLimitSchema],
+            validate: v => v.length > 0
+        },
+        globalSyncStatus: {
+            type: String,
+            enum: ["pending", "success", "failed"],
+            default: "pending",
+            index: true
+        },
+        globalSyncError: String,
         createdBy: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'User',
@@ -27,14 +51,7 @@ const inmateLocationSchema = new mongoose.Schema(
             type: mongoose.Schema.Types.ObjectId,
             ref: 'User',
             required: true,
-        },
-        global_location_id: {
-            type: String,
-            required: true
-        },
-        baseUrl: { type: String },
-        name:{type:String},
-        custodyLimits: [custodyLimitSchema]
+        }
     },
     {
         timestamps: true,

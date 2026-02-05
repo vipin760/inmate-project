@@ -1,8 +1,10 @@
 const express = require('express');
-const { AddLocation, getAllLocation, updateLocation, deleteLocation } = require('../controllers/inmateLocationController');
+const { getAllLocation, updateLocation, deleteLocation, addLocation } = require('../controllers/inmateLocationController');
+const authenticateToken = require('../middleware/authToken');
 const router = express.Router();
 
-router.post("/",AddLocation)
+router.use(authenticateToken)
+router.post("/",addLocation)
 router.get("/",getAllLocation)
 router.put("/:id",updateLocation)
 router.delete("/:id",deleteLocation)
